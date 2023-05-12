@@ -1,0 +1,10 @@
+*.swp
+*.jpg
+*.png
+*.pdf
+**/weights/
+*.h5
+**/wandb/
+/src/Hierarchical-Localization/
+**/.ipynb_checkpoints/
+**/__pycache__/
