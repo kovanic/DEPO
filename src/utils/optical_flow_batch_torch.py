@@ -42,7 +42,7 @@ def image2camera(depth, K):
     """
     Project image frame to camera coordinates.
 
-    :param depth: depth image (B x 1 x H x W)
+    :param depth: depth image (B x H x W)
     :param K: calibration matrix (B x 3 x 3)
     :return: pointcloud in camera coordinates (B x 3 x N)
     """
@@ -112,3 +112,31 @@ def optical_flow(depth_0, T_0, T_1, K_0, K_1, mask=True):
         return flow, total_mask.unsqueeze(1)
     
     return flow
+
+
+def optical_flow(depth_0, T_0, T_1, K_0, K_1, mask=True):
+    """Get optical flow from image_0 to image_1.
+
+    :param depth_0: depth observed with camera_0 (B x H x W)
+    :param T_0: camera_0 extrinsics matrix (B x 4 x 4)
+    :param T_1: camera_1 extrinsics matrix (B x 4 x 4)
+    :param K_0: camera_0 calibration matrix (B x 3 x 3)
+    :param K_1: camera_1 calibration matrix (B x 3 x 3)
+    :return: flow_0to1: (B x H x W), 
+             mask: values out of image_1 boundaries & no depth_0 available,  (H x W)
+    """
+
+    B, H, W = depth_0.shape
+    uv_0, uv_1 = image2image(depth_0, T_0, T_1, K_0, K_1)
+    flow = (uv_1 - uv_0)
+    flow = flow.reshape(B, 2, H, W)
+    
+    if mask:
+        depth_mask = depth_0 > 0
+        coo_0 = uv_0.reshape(B, 2, H, W)
+        coo_1 = coo_0 + flow
+        covisibility_mask = (coo_1[:, 0, :, :] < W-1) & (coo_1[:, 0, :, :] >= 0) & (coo_1[:, 1, :, :] < H-1) & (coo_1[:, 1, :, :] >= 0)
+        total_mask = depth_mask & covisibility_mask
+        return flow, total_mask[None, :, :]
+    else:
+        return flow, None
