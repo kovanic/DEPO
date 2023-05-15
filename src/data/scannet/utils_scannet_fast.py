@@ -97,7 +97,6 @@ class ScanNetDataset(Dataset):
             depth_0 = read_depth(osp.join(self.root_dir, scene_name, 'depth', f'{stem_name_0}.png'))
             T_0 = self._read_abs_pose(scene_name, stem_name_0)
             T_1 = self._read_abs_pose(scene_name, stem_name_1)
-            
         T_0to1 = self._compute_rel_pose(scene_name, stem_name_0, stem_name_1)
 
         data = {
