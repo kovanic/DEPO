@@ -16,6 +16,7 @@ from typing import (
     Optional, Sequence, Callable
 )
 
+from utils.optical_flow_numpy import optical_flow
 
 class JPEGReader:
     def __init__(self, size):
@@ -65,8 +66,10 @@ class ScanNetDataset(Dataset):
         self.calculate_flow = calculate_flow
         with np.load(npz_path) as data:
             self.data_names = data['name']
-        self.intrinsics = np.load(intrinsics_path)
+        intr = np.load(intrinsics_path)
+        self.intrinsics = {f: intr[f] for f in intr.files}
         self.jpeg_reader = JPEGReader(size)
+
         
     def __len__(self):
         return len(self.data_names)
@@ -97,6 +100,8 @@ class ScanNetDataset(Dataset):
             depth_0 = read_depth(osp.join(self.root_dir, scene_name, 'depth', f'{stem_name_0}.png'))
             T_0 = self._read_abs_pose(scene_name, stem_name_0)
             T_1 = self._read_abs_pose(scene_name, stem_name_1)
+            flow_0to1, mask = optical_flow(depth_0, T_0, T_1, K_0, K_1, mask=True, normalize=False)
+
         T_0to1 = self._compute_rel_pose(scene_name, stem_name_0, stem_name_1)
 
         data = {
@@ -115,13 +120,38 @@ class ScanNetDataset(Dataset):
         
         if self.calculate_flow:
             data.update({
-                'T_0': T_0.astype('float32'),
-                'T_1': T_1.astype('float32'),
-                'depth_0': depth_0.astype('float32')
+                'flow_0to1': flow_0to1,
+                'mask': mask,
+                # 'T_0': T_0.astype('float32'),
+                # 'T_1': T_1.astype('float32'),
+                # 'depth_0': depth_0.astype('float32')
             })
             
         return data
 
 
-
+# if __name__ == '__main__':
+#     import time
+#     from torch.utils.data import DataLoader
+#     from utils.optical_flow_batch_torch import optical_flow
     
+#     train_data = ScanNetDataset(
+#         root_dir='/home/project/data/ScanNet/scans/',
+#         npz_path='/home/project/code/data/scannet_splits/smart_sample_train_ft.npz',
+#         intrinsics_path='/home/project/ScanNet/scannet_indices/intrinsics.npz',
+#         calculate_flow=True)
+
+#     train_loader = DataLoader(train_data, batch_size=64, shuffle=True, drop_last=True, pin_memory=True, num_workers=2)
+    
+
+#     times = []
+#     for _ in range(5):
+#         start = time.time()
+#         data = next(iter(train_loader))
+#         for key in data.keys():
+#             if key in ('image_0', 'image_1', 'K_0', 'K_1', 'depth_0', 'T_0', 'T_1', 'T_0to1', 'flow_0to1'):
+#                 data[key] = data[key].cuda()
+#         flow_0to1 = optical_flow(data['depth_0'], data['T_0'], data['T_1'], data['K_0'], data['K_1'])
+#         end = time.time()
+#         times.append(end-start)
+#     print(times)
