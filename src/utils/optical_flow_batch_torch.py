@@ -32,7 +32,7 @@ def create_coordinate_grid(img_shape):
     :return: coordinate grid of size (B x 2 x N), where N=height*width
     """
     B, H, W = img_shape
-    u, v = torch.meshgrid(torch.arange(H), torch.arange(W), indexing='ij')
+    u, v = torch.meshgrid(torch.arange(H), torch.arange(W))
     uv = torch.cat((v[..., None], u[..., None]), dim=2).reshape(-1, 2).T
     uv = uv.repeat(B, 1, 1)
     return uv
@@ -42,13 +42,13 @@ def image2camera(depth, K):
     """
     Project image frame to camera coordinates.
 
-    :param depth: depth image
-    :param K: calibration matrix (3 x 3)
+    :param depth: depth image (B x 1 x H x W)
+    :param K: calibration matrix (B x 3 x 3)
     :return: pointcloud in camera coordinates (B x 3 x N)
     """
     B, H, W = depth.shape
     uv = create_coordinate_grid((B, H, W)).to(depth.device)
-    uv1 = to_homogeneous(uv).double()
+    uv1 = to_homogeneous(uv).float()
     xyz = inv(K) @ uv1 * depth.view(B, 1, -1)
     return uv, xyz
 
@@ -73,7 +73,7 @@ def camera2image(xyz, K):
     Project points from camera coordinates to image plane.
 
     :param xyz: pointcloud in camera coordinates (B x 3 x N)
-    :param K: calibration matrix (3 x 3)
+    :param K: calibration matrix (B x 3 x 3)
     :return: projection of pointcloud to image frame (B x 2 x N)
     """
     uv = to_cartesian(K @ xyz)

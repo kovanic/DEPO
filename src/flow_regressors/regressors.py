@@ -28,7 +28,7 @@ def create_normalized_grid(size: tuple, K: torch.Tensor, scales: tuple=(1., 1.))
     :param scales: parameters of resizing of original image
     '''
     B, H, W = size
-    grid = torch.meshgrid((torch.arange(H), torch.arange(W)), indexing='ij')
+    grid = torch.meshgrid((torch.arange(H), torch.arange(W)))
     grid = torch.cat((grid[1].unsqueeze(0), grid[0].unsqueeze(0)), dim=0).float().to(K.device)
     grid = grid[None, ...].repeat(B, 1, 1, 1)
     grid = normalize_points(grid, K, scales)
@@ -438,8 +438,8 @@ class DensePoseRegressorV7(nn.Module):
         x = torch.cat((x, grid), dim=1) #B x 4 x H x W
                 
         x = self.decoder(x)
-        t = self.translation_conv(x[:, :32, ...]).squeeze(2, 3)
-        q = self.angle_conv(x[:, 32:, ...]).squeeze(2, 3) #B x 4 x 1 x 1 -> B x 4
+        t = self.translation_conv(x[:, :32, ...]).squeeze(2).squeeze(2)
+        q = self.angle_conv(x[:, 32:, ...]).squeeze(2).squeeze(2) #B x 4 x 1 x 1 -> B x 4
         q[:, 0] = torch.abs(q.clone()[:, 0])
         q = q / norm(q, ord=2, dim=1, keepdim=True)
         return q, t

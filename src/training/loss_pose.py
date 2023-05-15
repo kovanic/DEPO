@@ -9,8 +9,9 @@ class LossPose:
     and set of rotations (lying in quaternion space).
     :param agg_type: type of used aggregation: None, mean, sum'''
     
-    def __init__(self, agg_type=None):
+    def __init__(self, agg_type=None, t_norm='l1'):
         self.agg_type = agg_type
+        self.t_norm = t_norm
         
     def __call__(self, q: torch.Tensor, t: torch.Tensor, T_0to1: torch.Tensor, weights: torch.Tensor=None):
         '''
@@ -32,8 +33,11 @@ class LossPose:
         q_gt[q_gt[:, 0] < 0] = -q_gt[q_gt[:, 0] < 0] 
        
         t_gt = t_gt.to(t.device)
-
-        l1 = torch.abs(t_gt - t).sum(dim=1)
+        if self.t_norm == 'l1':
+            l1 = torch.abs(t_gt - t).sum(dim=1)
+        else:
+            l1 = torch.norm(t_gt - t, p=2, dim=1)
+            
         l2 = torch.abs(q_gt - q).sum(dim=1) 
         l3 = 0.
         
@@ -42,7 +46,7 @@ class LossPose:
             l2 = l2 * torch.exp(-weights[1]) + 4*weights[1]
             
             if len(weights) == 3:
-                l3 = ((t_gt / norm(t_gt, ord=2, dim=1, keepdim=True) - t / norm(t, ord=2, dim=1, keepdim=True)) ** 2).sum(dim=1)
+                l3 = ((t_gt / norm(t_gt, p=2, dim=1, keepdim=True) - t / norm(t, p=2, dim=1, keepdim=True)) ** 2).sum(dim=1)
                 l3 = l3 * torch.exp(-weights[2]) + 3*weights[2]
                 
         if self.agg_type == 'mean':
