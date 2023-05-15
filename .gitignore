@@ -2,7 +2,7 @@
 *.jpg
 *.png
 *.pdf
-**/weights/
+**/*weights*/
 *.h5
 **/wandb/
 /src/Hierarchical-Localization/
