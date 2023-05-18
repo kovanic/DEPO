@@ -18,12 +18,12 @@ def validate(model, val_loss, val_loader, device):
     val_loss_t = []
     for data in tqdm(val_loader):
         for key in data.keys():
-            if key in ('image0', 'image1', 'K0', 'K1', 'flow_0to1', 'mask'):
+            if key in ('image_0', 'image_1', 'K_0', 'K_1', 'flow_0to1', 'mask'):
                 data[key] = data[key].to(device)   
-        B = data['image0'].size(0)
+        B = data['image_0'].size(0)
         flow, q, t = model(
-            img_q=data['image0'], img_s=data['image1'],
-            K_q=data['K0'], K_s=data['K1'],
+            img_q=data['image_0'], img_s=data['image_1'],
+            K_q=data['K_0'], K_s=data['K_1'],
             scales_q=0.125 * torch.ones((B, 2), device=device),
             scales_s=0.125 * torch.ones((B, 2), device=device),
             H=60, W=80)
@@ -47,13 +47,13 @@ def test(model, loader, device):
                'R': []}
     for data in tqdm(loader):
         for key in data.keys():
-            if key in ('image0', 'image1', 'K0', 'K1'):
+            if key in ('image0', 'image1', 'K_0', 'K_1'):
                 data[key] = data[key].to(device)
                 
         B = data['image0'].size(0)
         _, q, t = model(
             img_q=data['image0'], img_s=data['image1'],
-            K_q=data['K0'], K_s=data['K1'],
+            K_q=data['K_0'], K_s=data['K_1'],
             scales_q=0.125 * torch.ones((B, 2), device=device),
             scales_s=0.125 * torch.ones((B, 2), device=device),
             H=60, W=80)
@@ -98,13 +98,13 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
             model.train()
             for i, data in tqdm(enumerate(train_loader), total=n_steps_per_epoch):
                 for key in data.keys():
-                    if key in ('image0', 'image1', 'K0', 'K1', 'flow_0to1', 'mask'):
+                    if key in ('image_0', 'image_1', 'K_0', 'K_1', 'flow_0to1', 'mask'):
                         data[key] = data[key].to(device)
                 
-                B = data['image0'].size(0)
+                B = data['image_0'].size(0)
                 flow, q, t = model(
-                    img_q=data['image0'], img_s=data['image1'],
-                    K_q=data['K0'], K_s=data['K1'],
+                    img_q=data['image_0'], img_s=data['image_1'],
+                    K_q=data['K_0'], K_s=data['K_1'],
                     scales_q=0.125 * torch.ones((B, 2), device=device),
                     scales_s=0.125 * torch.ones((B, 2), device=device),
                     H=60, W=80)
@@ -115,12 +115,13 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
                     weights = None
     
                 loss, flow_loss, q_loss, t_loss = train_loss(flow, q, t, data['T_0to1'], data['flow_0to1'], data['mask'], weights)
+                loss = loss / n_accum_steps
                 loss.backward()
                 
                 train_batch_loss['total'] += loss.item() * n_accum_steps * batch_size
-                train_batch_loss['flow'] += flow_loss.item() * n_accum_steps * batch_size
-                train_batch_loss['q'] += q_loss.item() * n_accum_steps * batch_size
-                train_batch_loss['t'] += t_loss.item() * n_accum_steps * batch_size
+                train_batch_loss['flow'] += flow_loss.item() * batch_size
+                train_batch_loss['q'] += q_loss.item() * batch_size
+                train_batch_loss['t'] += t_loss.item() * batch_size
                 
                 if ((i + 1) % n_accum_steps == 0) or ((i + 1) == n_steps_per_epoch):
                     # nn.utils.clip_grad_norm_(model.parameters(), 5)
@@ -217,13 +218,13 @@ def update_bn(loader, model, device=None):
 
     for data in loader:
         for key in data.keys():
-            if key in ('image0', 'image1', 'K0', 'K1', 'flow_0to1', 'mask'):
+            if key in ('image_0', 'image_1', 'K_0', 'K_1', 'flow_0to1', 'mask'):
                 data[key] = data[key].to(device)
                              
-        B = data['image0'].size(0)
+        B = data['image_0'].size(0)
         model(
-            img_q=data['image0'], img_s=data['image1'],
-            K_q=data['K0'], K_s=data['K1'],
+            img_q=data['image_0'], img_s=data['image_1'],
+            K_q=data['K_0'], K_s=data['K_1'],
             scales_q=0.125 * torch.ones((B, 2), device=device),
             scales_s=0.125 * torch.ones((B, 2), device=device),
             H=60, W=80)

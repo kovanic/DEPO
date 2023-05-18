@@ -39,11 +39,11 @@ class DensePoseRegressorV1(nn.Module):
         
         self.decoder = nn.Sequential(
             conv_block(in_ch, 64, 5, 1, 2, True, 60, 80, bias=False),
-            ResNetBlock(64, 64, 60, 80, 3, 2, groups=2),
+            ResNetBlock(64, 64, 60, 80, 3, 2),
             ResNetBlock(64, 64, 30, 40, 3, 2, groups=2),
             ResNetBlock(64, 64, 15, 20, 3, 2, groups=2),
             ResNetBlock(64, 64, 8, 10, 3, 2, groups=2),    
-            nn.Conv2d(64, 64, (4, 5), 1, 0),
+            nn.Conv2d(64, 64, (4, 5), 1, 0, groups=2),
             nn.LeakyReLU(0.1)
         )
         self.translation_conv = nn.Conv2d(32, 3, 1, 1, 0)
@@ -73,7 +73,7 @@ class DensePoseRegressorV2(nn.Module):
             ResNetBlock(64, 64, 30, 40, 3, 2, groups=2),
             ResNetBlock(64, 64, 15, 20, 3, 2, groups=2),
             ResNetBlock(64, 64, 8, 10, 3, 2, groups=2),    
-            nn.Conv2d(64, 64, (4, 5), 1, 0),
+            nn.Conv2d(64, 64, (4, 5), 1, 0, groups=2),
             nn.LeakyReLU(0.1)
         )
         self.translation_conv = nn.Conv2d(32, 3, 1, 1, 0)
@@ -128,7 +128,7 @@ class DensePoseRegressorV4(nn.Module):
             ResNetBlock(64, 64, 30, 40, 3, 2, groups=2),
             ResNetBlock(64, 64, 15, 20, 3, 2, groups=2),
             ResNetBlock(64, 64, 8, 10, 3, 2, groups=2),    
-            nn.Conv2d(64, 64, (4, 5), 1, 0),
+            nn.Conv2d(64, 64, (4, 5), 1, 0,  groups=2),
             nn.LeakyReLU(0.1)
         )
         self.translation_conv = nn.Conv2d(32, 3, 1, 1, 0)

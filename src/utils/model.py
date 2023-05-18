@@ -8,12 +8,7 @@ def load_checkpoint(path, device):
         checkpoint = torch.load(path)
     return checkpoint
     
-def load_optimizer(path, optimizer, device):
-    if device == 'cpu':
-        checkpoint = torch.load(path, map_location=device)['optimizer']
-    else:
-        checkpoint = torch.load(path)['optimizer']   
-    model.load_state_dict(checkpoint)
+
     
 def save_model(model, epoch, path, optimizer=None, scheduler=None):
     checkpoint = { 
