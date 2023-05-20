@@ -13,7 +13,7 @@ from twins_backbone import (
     pcpvt_small_v0_partial, pcpvt_base_v0_partial, pcpvt_large_v0_partial,
     alt_gvt_small_partial, alt_gvt_base_partial, alt_gvt_large_partial
 )
-
+from focalnet_backbone import focalnet_base_partial
 from pose_regressors import DensePoseRegressorV1, DensePoseRegressorV2, DensePoseRegressorV3, DensePoseRegressorV4, DensePoseRegressorV5, DensePoseRegressorV6
 from latent_regressor import LatentTransformerRegressor
 
@@ -163,9 +163,10 @@ class DEPO_v2(nn.Module):
         features = self.self_encoder(imgs)
         
         #Apply cross-attention module
-        features_q, features_s = features.split(B) # N x hid_dim x H x W         
-        features_q = features_q.flatten(2).transpose(2, 1)
-        features_s = features_s.flatten(2).transpose(2, 1)
+        features_q, features_s = features.split(B) # B x hid_dim x H x W
+        if len(features.size()) != 3: # For FocalNet output already has size B x HW x hid_dim
+            features_q = features_q.flatten(2).transpose(2, 1)
+            features_s = features_s.flatten(2).transpose(2, 1)
         features_qc = self.cross_encoder(features_q, features_s, H, W) # B x HW x hid_dim
         
         #Hidden geometry extraction
@@ -192,7 +193,7 @@ class DEPO_v2(nn.Module):
             flow_coarse = normalize_points(flow_coarse, K_s, scales_s)
             grid = create_normalized_grid((B, H, W), K_q, scales_q)
             flow_coarse = torch.cat((flow_coarse, grid), dim=1) #B x 4 x H x W
-            q, t = self.pose_regressor(flow_coarse, K_q, K_s, scales_q, scales_s)
+            q, t = self.pose_regressor(flow_coarse)
             return flow, q, t
             
             
@@ -200,7 +201,7 @@ class DEPO_v2(nn.Module):
 ######################################################################
             
 def depo_v0():
-    self_encoder = pcpvt_large_v0_partial(img_size=(640, 480))
+    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
     self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
     cross_encoder = QuadtreeAttention(dim=128, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = DensePoseRegressorV3(128)
@@ -215,7 +216,7 @@ def depo_v0():
 
 
 def depo_v1():
-    self_encoder = pcpvt_large_v0_partial(img_size=(640, 480))
+    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
     self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
     cross_encoder = QuadtreeAttention(dim=128, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = DensePoseRegressorV5(128)
@@ -229,7 +230,7 @@ def depo_v1():
             
 
 def depo_v2():
-    self_encoder = pcpvt_large_v0_partial(img_size=(640, 480))
+    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
     self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
     cross_encoder = QuadtreeAttention(dim=128, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = DensePoseRegressorV1(4)
@@ -244,7 +245,7 @@ def depo_v2():
 
 
 def depo_v3():
-    self_encoder = pcpvt_large_v0_partial(img_size=(640, 480))
+    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
     self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
     cross_encoder = QuadtreeAttention(dim=128, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = DensePoseRegressorV5(128)
@@ -259,7 +260,7 @@ def depo_v3():
 
     
 def depo_v4():
-    self_encoder = alt_gvt_large_partial(img_size=(640, 480))
+    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
     self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
     cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = DensePoseRegressorV5(128)
@@ -274,7 +275,7 @@ def depo_v4():
 
 
 def depo_v6():
-    self_encoder = pcpvt_large_v0_partial(img_size=(640, 480))
+    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
     self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
     cross_encoder = QuadtreeAttention(dim=128, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = DensePoseRegressorV6(128)
@@ -288,7 +289,7 @@ def depo_v6():
 
 
 def depo_v7():
-    self_encoder = alt_gvt_large_partial(img_size=(640, 480))
+    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
     self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
     cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = LatentTransformerRegressor(
@@ -307,7 +308,7 @@ def depo_v7():
 
 
 def depo_v8():
-    self_encoder = alt_gvt_large_partial(img_size=(640, 480))
+    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
     self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
     cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = LatentTransformerRegressor(
@@ -322,6 +323,21 @@ def depo_v8():
         hid_dim=256,
         hid_out_dim=128,
         mode='pose',
+        upsample_factor=8)
+
+
+def depo_v9():
+    self_encoder = focalnet_base_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/focal_base.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
+    pose_regressor = DensePoseRegressorV5(128)
+    return DEPO_v2(
+        self_encoder=self_encoder,
+        cross_encoder=cross_encoder,
+        pose_regressor=pose_regressor,
+        hid_dim=256,
+        hid_out_dim=128,
+        mode='flow&pose',
         upsample_factor=8)
 
 
@@ -440,7 +456,7 @@ class DEPO(nn.Module):
             calibration_parameters = self.intrinsics_mlp(calibration_vector) # num_emb*2
             mu, sigma = calibration_parameters[:, :self.num_emb, None, None], torch.exp(calibration_parameters[:, self.num_emb:, None, None])
             pose_regressor_input = (hidden_geometry - mu) / sigma
-            q, t = self.pose_regressor(pose_regressor_input, K_q, K_s, scales_q, scales_s)
+            q, t = self.pose_regressor(pose_regressor_input)
         
         if 'flow' in self.mode:
             flow_coarse = self.flow_regressor(hidden_geometry)
@@ -456,7 +472,7 @@ class DEPO(nn.Module):
             flow_coarse = normalize_points(flow_coarse, K_s, scales_s)
             grid = create_normalized_grid((B, H, W), K_q, scales_q)
             flow_coarse = torch.cat((flow_coarse, grid), dim=1) #B x 4 x H x W
-            q, t = self.pose_regressor(flow_coarse, K_q, K_s, scales_q, scales_s)
+            q, t = self.pose_regressor(flow_coarse)
             return flow, q, t
 
         
@@ -573,7 +589,7 @@ class DEPO_v1(nn.Module):
             calibration_parameters = self.intrinsics_mlp(calibration_vector) # hid_out_dim*2
             mu, sigma = calibration_parameters[:, :self.hid_out_dim, None, None], torch.exp(calibration_parameters[:, self.hid_out_dim:, None, None])
             pose_regressor_input = (hidden_geometry - mu) / sigma
-            q, t = self.pose_regressor(pose_regressor_input, K_q, K_s, scales_q, scales_s)
+            q, t = self.pose_regressor(pose_regressor_input)
         
         if 'flow' in self.mode:
             flow_coarse = self.flow_regressor(hidden_geometry)
@@ -589,5 +605,5 @@ class DEPO_v1(nn.Module):
             flow_coarse = normalize_points(flow_coarse, K_s, scales_s)
             grid = create_normalized_grid((B, H, W), K_q, scales_q)
             flow_coarse = torch.cat((flow_coarse, grid), dim=1) #B x 4 x H x W
-            q, t = self.pose_regressor(flow_coarse, K_q, K_s, scales_q, scales_s)
+            q, t = self.pose_regressor(flow_coarse)
             return flow, q, t

@@ -534,7 +534,6 @@ def alt_gvt_base(pretrained=False, **kwargs):
         patch_size=4, embed_dims=[96, 192, 384, 768], num_heads=[3, 6, 12, 24], mlp_ratios=[4, 4, 4, 4], qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[2, 2, 18, 2], wss=[7, 7, 7, 7], sr_ratios=[8, 4, 2, 1],
         **kwargs)
-
     model.default_cfg = _cfg()
     return model
 
