@@ -20,6 +20,7 @@ def save_model(model, epoch, path, optimizer=None, scheduler=None):
     torch.save(checkpoint, f'{path}_{epoch}.pth')
 
     
+    
 def plot_schedule(scheduler, steps):
     lrs = []
     for _ in range(steps):
@@ -28,3 +29,8 @@ def plot_schedule(scheduler, steps):
     
     fig, ax = plt.subplots(1, 1, figsize=(10, 10))
     ax.plot(lrs)
+    
+    
+    
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
