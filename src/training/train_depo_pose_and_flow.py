@@ -13,7 +13,7 @@ from scipy.spatial.transform import Rotation
 @torch.no_grad()
 def validate(model, val_loss, val_loader, device):
     model.eval()
-    val_loss_flow = []
+    # val_loss_flow = []
     val_loss_q = []
     val_loss_t = []
     for data in tqdm(val_loader):
@@ -27,11 +27,12 @@ def validate(model, val_loss, val_loader, device):
             scales_q=0.125 * torch.ones((B, 2), device=device),
             scales_s=0.125 * torch.ones((B, 2), device=device),
             H=60, W=80)
-        loss_flow, loss_q, loss_t = val_loss(flow, q, t, data['T_0to1'], data['flow_0to1'], data['mask'])
-        val_loss_flow.append(loss_flow.sum().item())
+        loss_flow, loss_q, loss_t = val_loss(flow, q, t, data['T_0to1'], None, None)
+        # val_loss_flow.append(loss_flow.sum().item())
         val_loss_q.append(loss_q.sum().item())
         val_loss_t.append(loss_t.sum().item())
-    return (np.sum(val_loss_flow) / len(val_loader.dataset),
+    return (
+            None, # np.sum(val_loss_flow) / len(val_loader.dataset),
             np.sum(val_loss_q) / len(val_loader.dataset),
             np.sum(val_loss_t) / len(val_loader.dataset))
 
@@ -141,13 +142,14 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
                     })
                     
                     train_batch_loss = {'total':0., 'flow': 0., 'q': 0., 't':0.}
+                    scheduler.step()
                     
                 #SWA update at each n_steps_between_swa_updates steps of last `n_epochs_swa` epochs.
                 if (swa and (scheduler.step_ > (n_epochs - n_epochs_swa) * n_steps_per_epoch) and
                    ((scheduler.step_ % n_steps_between_swa_updates == 0) or (scheduler.step_ % step_per_epoch == 0))):
                     swa_model.update_parameters(model)
            
-                scheduler.step()
+                
             
             data = None
             for key, val in train_loss_epoch.items():
@@ -163,7 +165,7 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
                        "Train loss epoch (flow)": train_loss_epoch['flow'],
                        "Train loss epoch (q)": train_loss_epoch['q'],
                        "Train loss epoch (t)": train_loss_epoch['t'],
-                       "Val loss epoch(flow)": loss_val_epoch_q,
+                       # "Val loss epoch(flow)": loss_val_epoch_q,
                        "Val loss epoch(q)": loss_val_epoch_q,
                        "Val loss epoch(t)": loss_val_epoch_t
                       })

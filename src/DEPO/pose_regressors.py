@@ -50,7 +50,7 @@ class DensePoseRegressorV1(nn.Module):
         self.angle_conv = nn.Conv2d(32, 4, 1, 1, 0)
         
         
-    def forward(self, x, K_q, K_s, scales_q, scales_s):               
+    def forward(self, x):               
         x = self.decoder(x)
         t = self.translation_conv(x[:, :32, ...]).squeeze(2).squeeze(2)
         q = self.angle_conv(x[:, 32:, ...]).squeeze(2).squeeze(2) #B x 4 x 1 x 1 -> B x 4
@@ -80,7 +80,7 @@ class DensePoseRegressorV2(nn.Module):
         self.angle_conv = nn.Conv2d(32, 4, 1, 1, 0)
         
         
-    def forward(self, x, K_q, K_s, scales_q, scales_s):
+    def forward(self, x):
         x = self.decoder(x)
         t = self.translation_conv(x[:, :32, ...]).squeeze(2).squeeze(2)
         q = self.angle_conv(x[:, 32:, ...]).squeeze(2).squeeze(2) #B x 4 x 1 x 1 -> B x 4
@@ -106,7 +106,7 @@ class DensePoseRegressorV3(nn.Module):
         self.angle_conv = nn.Conv2d(32, 4, 1, 1, 0)
         
         
-    def forward(self, x, K_q, K_s, scales_q, scales_s):               
+    def forward(self, x):               
         x = self.decoder(x)
         t = self.translation_conv(x[:, :32, ...]).squeeze(2).squeeze(2)
         q = self.angle_conv(x[:, 32:, ...]).squeeze(2).squeeze(2) #B x 4 x 1 x 1 -> B x 4
@@ -135,7 +135,7 @@ class DensePoseRegressorV4(nn.Module):
         self.angle_conv = nn.Conv2d(32, 4, 1, 1, 0)
         
         
-    def forward(self, x, K_q, K_s, scales_q, scales_s):
+    def forward(self, x):
         x = self.decoder(x)
         t = self.translation_conv(x[:, :32, ...]).squeeze(2).squeeze(2)
         q = self.angle_conv(x[:, 32:, ...]).squeeze(2).squeeze(2) #B x 4 x 1 x 1 -> B x 4
@@ -164,7 +164,7 @@ class DensePoseRegressorV5(nn.Module):
         self.angle_conv = nn.Conv2d(in_ch // 2, 4, 1, 1, 0)
         
         
-    def forward(self, x, K_q, K_s, scales_q, scales_s):               
+    def forward(self, x):               
         x = self.decoder(x)
         t = self.translation_conv(x[:, :self.in_ch // 2, ...]).squeeze(2).squeeze(2)
         q = self.angle_conv(x[:, self.in_ch // 2:, ...]).squeeze(2).squeeze(2) #B x 4 x 1 x 1 -> B x 4
@@ -193,7 +193,7 @@ class DensePoseRegressorV6(nn.Module):
         self.angle_conv = nn.Conv2d(in_ch // 2, 4, 1, 1, 0)
         
         
-    def forward(self, x, K_q, K_s, scales_q, scales_s):               
+    def forward(self, x):               
         x = self.decoder(x)
         t = self.translation_conv(x[:, :self.in_ch // 2, ...]).squeeze(2).squeeze(2)
         q = self.angle_conv(x[:, self.in_ch // 2:, ...]).squeeze(2).squeeze(2) #B x 4 x 1 x 1 -> B x 4
