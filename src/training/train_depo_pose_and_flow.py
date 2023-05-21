@@ -142,13 +142,14 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
                     })
                     
                     train_batch_loss = {'total':0., 'flow': 0., 'q': 0., 't':0.}
+                    scheduler.step()
                     
                 #SWA update at each n_steps_between_swa_updates steps of last `n_epochs_swa` epochs.
                 if (swa and (scheduler.step_ > (n_epochs - n_epochs_swa) * n_steps_per_epoch) and
                    ((scheduler.step_ % n_steps_between_swa_updates == 0) or (scheduler.step_ % step_per_epoch == 0))):
                     swa_model.update_parameters(model)
            
-                scheduler.step()
+                
             
             data = None
             for key, val in train_loss_epoch.items():
