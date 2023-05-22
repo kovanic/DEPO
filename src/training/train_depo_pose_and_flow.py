@@ -48,12 +48,12 @@ def test(model, loader, device):
                'R': []}
     for data in tqdm(loader):
         for key in data.keys():
-            if key in ('image0', 'image1', 'K_0', 'K_1'):
+            if key in ('image_0', 'image_1', 'K_0', 'K_1'):
                 data[key] = data[key].to(device)
                 
-        B = data['image0'].size(0)
+        B = data['image_0'].size(0)
         _, q, t = model(
-            img_q=data['image0'], img_s=data['image1'],
+            img_q=data['image_0'], img_s=data['image_1'],
             K_q=data['K_0'], K_s=data['K_1'],
             scales_q=0.125 * torch.ones((B, 2), device=device),
             scales_s=0.125 * torch.ones((B, 2), device=device),

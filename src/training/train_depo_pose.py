@@ -82,7 +82,7 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
           n_epochs, n_steps_per_epoch, n_accum_steps,
           swa, n_epochs_swa, n_steps_between_swa_updates,
           repeat_val_epoch, repeat_save_epoch,
-          batch_size, model_save_path, **args):
+          batch_size, model_save_path, scheduler_step='epoch', **args):
     
     with wandb.init(project="Diploma", config=config, name=experiment_name) as exp:
         if swa:
@@ -96,7 +96,7 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
             model.train()
             for i, data in tqdm(enumerate(train_loader), total=n_steps_per_epoch):
                 for key in data.keys():
-                    if key in ('image_0', 'image_1', 'K_0', 'K_1', 'flow_0to1', 'mask'):
+                    if key in ('image_0', 'image_1', 'K_0', 'K_1'):
                         data[key] = data[key].to(device)
                 
                 B = data['image_0'].size(0)
@@ -127,7 +127,8 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
                         "Train batch loss (total)": train_batch_loss / (batch_size * n_accum_steps)
                     })
                     train_batch_loss = 0
-                    
+                    if scheduler_step == 'step':
+                        scheduler.step()
                 
                 
                 #SWA update at each n_steps_between_swa_updates steps of last `n_epochs_swa` epochs.
@@ -135,8 +136,8 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
                    ((scheduler.step_ % n_steps_between_swa_updates == 0) or (scheduler.step_ % step_per_epoch == 0))):
                     swa_model.update_parameters(model)
                
-            
-            scheduler.step()
+            if scheduler_step == 'epoch':
+                scheduler.step()
             data = None
             train_loss_epoch /= len(train_loader.dataset)
         

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# FocalNet-B + QuadTree-B + flow & pose (deterministic)
+# FocalNet-B + QuadTree-B + flow & pose (deterministic + l2)
 
 # In[1]:
 
@@ -40,22 +40,22 @@ from transformers import get_scheduler
 
 
 train_data = ScanNetDataset(
-    root_dir='/home/project/data/ScanNet/scans/',
+    root_dir='/home/project/data/scans/',
     npz_path='/home/project/code/data/scannet_splits/smart_sample_train_ft.npz',
     intrinsics_path='/home/project/ScanNet/scannet_indices/intrinsics.npz',
     calculate_flow=True
 )
 
-train_loader = DataLoader(train_data, batch_size=16, shuffle=True, drop_last=True, pin_memory=True, num_workers=0)
+train_loader = DataLoader(train_data, batch_size=32, shuffle=True, drop_last=True, pin_memory=True, num_workers=4)
 
 val_data = ScanNetDataset(
-    root_dir='/home/project/data/ScanNet/scans/',
+    root_dir='/home/project/data/scans/',
     npz_path='/home/project/code/data/scannet_splits/smart_sample_val.npz',
     intrinsics_path='/home/project/ScanNet/scannet_indices/intrinsics.npz',
     calculate_flow=False
 )
 
-val_loader = DataLoader(val_data, batch_size=16, shuffle=False, drop_last=False, pin_memory=True, num_workers=0)
+val_loader = DataLoader(val_data, batch_size=32, shuffle=False, drop_last=False, pin_memory=True, num_workers=4)
 
 
 # #### Config
@@ -70,23 +70,20 @@ config = dict(
     experiment_name='flow_and_pose_v10_with_l2',
     device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'),
     n_epochs=10,
-    n_accum_steps=4,
+    n_accum_steps=8,
     batch_size=train_loader.batch_size,
     n_steps_per_epoch=len(train_loader.dataset) // train_loader.batch_size,
     swa=False,
     n_epochs_swa=None,
     n_steps_between_swa_updates=None,
-
     repeat_val_epoch=1,
     repeat_save_epoch=1,
-
     model_save_path='../../src/weights/flow_and_pose_v10_with_l2'
 )
 
-config['n_effective_steps'] = np.floor(len(train_loader.dataset) / (train_loader.batch_size * config['n_accum_steps'])) 
-
-
-config['n_warmup_steps'] = int(config['n_effective_steps'] * 0.5)
+config['n_effective_steps_per_epoch'] = np.ceil(len(train_loader.dataset) / (train_loader.batch_size * config['n_accum_steps'])) 
+config['n_warmup_steps'] = config['n_effective_steps_per_epoch'] * 2
+config['n_training_steps'] = int(config['n_effective_steps_per_epoch'] * config['n_epochs'])
 
 
 # #### Model
@@ -115,7 +112,7 @@ train_loss = LossMixedDetermininstic(mode='train', add_l2=True)
 # In[8]:
 
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-6)
+optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-5)
 
 
 # In[9]:
@@ -125,7 +122,7 @@ scheduler = get_scheduler(
     "cosine",    
     optimizer=optimizer,
     num_warmup_steps=config['n_warmup_steps'],
-    num_training_steps=config['n_effective_steps']
+    num_training_steps=config['n_training_steps'] 
 )
 
 

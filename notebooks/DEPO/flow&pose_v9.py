@@ -29,6 +29,7 @@ from DEPO.depo import depo_v9
 from training.train_depo_pose_and_flow import train, validate
 from training.loss_depo import LossMixedDetermininstic
 from utils.model import load_checkpoint
+import numpy as np
 
 from transformers import get_scheduler
 
@@ -45,7 +46,7 @@ train_data = ScanNetDataset(
     calculate_flow=True
 )
 
-train_loader = DataLoader(train_data, batch_size=16, shuffle=True, drop_last=True, pin_memory=True, num_workers=0)
+train_loader = DataLoader(train_data, batch_size=16, shuffle=True, drop_last=True, pin_memory=True, num_workers=4)
 
 val_data = ScanNetDataset(
     root_dir='/home/project/data/scans/',
@@ -54,7 +55,7 @@ val_data = ScanNetDataset(
     calculate_flow=False
 )
 
-val_loader = DataLoader(val_data, batch_size=16, shuffle=False, drop_last=False, pin_memory=True, num_workers=0)
+val_loader = DataLoader(val_data, batch_size=16, shuffle=False, drop_last=False, pin_memory=True, num_workers=4)
 
 
 # #### Config
@@ -69,10 +70,9 @@ config = dict(
     experiment_name='flow_and_pose_v9',
     device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'),
     n_epochs=10,
-    n_steps_per_epoch=len(train_loader.dataset) // train_loader.batch_size,
     n_accum_steps=4,
     batch_size=train_loader.batch_size,
-
+    n_steps_per_epoch=len(train_loader.dataset) // train_loader.batch_size,
     swa=False,
     n_epochs_swa=None,
     n_steps_between_swa_updates=None,
@@ -83,7 +83,8 @@ config = dict(
     model_save_path='../../src/weights/flow_and_pose_v9'
 )
 
-config['n_warmup_steps'] = int(config['n_steps_per_epoch'] * 0.5)
+config['n_effective_steps_per_epoch'] = np.ceil(len(train_loader.dataset) / (train_loader.batch_size * config['n_accum_steps'])) 
+config['n_warmup_steps'] = config['n_effective_steps_per_epoch']
 
 
 # #### Model
@@ -112,7 +113,7 @@ train_loss = LossMixedDetermininstic(mode='train')
 # In[8]:
 
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-6)
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-6)
 
 
 # In[9]:
@@ -122,7 +123,7 @@ scheduler = get_scheduler(
     "cosine",    
     optimizer=optimizer,
     num_warmup_steps=config['n_warmup_steps'],
-    num_training_steps=config['n_steps_per_epoch'] * config['n_epochs']
+    num_training_steps=config['n_effective_steps_per_epoch'] * config['n_epochs']
 )
 
 
