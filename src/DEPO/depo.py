@@ -341,6 +341,22 @@ def depo_v9():
         upsample_factor=8)
 
 
+
+def depo_v10():
+    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=128, num_heads=8, topks=[16, 16, 8], scale=3)
+    pose_regressor = DensePoseRegressorV5(128)
+    return DEPO_v2(
+        self_encoder=self_encoder,
+        cross_encoder=cross_encoder,
+        pose_regressor=pose_regressor,
+        hid_dim=128,
+        hid_out_dim=128,
+        mode='flow&pose',
+        upsample_factor=8)
+
+
 ############################Legacy####################################
 ######################################################################
 
