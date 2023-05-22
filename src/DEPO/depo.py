@@ -68,13 +68,14 @@ class DEPO_v2(nn.Module):
     """
     :param mode: {'flow&pose', 'flow->pose', 'pose'}
     """
-    def __init__(self, self_encoder, cross_encoder, pose_regressor, mode, hid_dim, hid_out_dim, upsample_factor=1):
+    def __init__(self, self_encoder, cross_encoder, pose_regressor, mode, hid_dim, hid_out_dim, upsample_factor=1, ca='qt'):
         super(DEPO_v2, self).__init__()
          
         self.hid_dim = hid_dim
         self.hid_out_dim = hid_out_dim
         self.mode = mode
         self.upsample_factor = upsample_factor
+        self.ca = ca
         
         self.self_encoder = self_encoder
         self.cross_encoder = cross_encoder        
@@ -161,17 +162,17 @@ class DEPO_v2(nn.Module):
         B = img_q.size(0)
         imgs = normalize_imgs(torch.cat((img_q, img_s), dim=0))
         features = self.self_encoder(imgs)
+        features_q, features_s = features.split(B) # B x hid_dim x H x W
         
         #Apply cross-attention module
-        features_q, features_s = features.split(B) # B x hid_dim x H x W
         if len(features.size()) != 3: # For FocalNet output already has size B x HW x hid_dim
             features_q = features_q.flatten(2).transpose(2, 1)
             features_s = features_s.flatten(2).transpose(2, 1)
         features_qc = self.cross_encoder(features_q, features_s, H, W) # B x HW x hid_dim
-        
+
         #Hidden geometry extraction
         hidden_geometry = self.geometry_decoder(features_qc - features_q).transpose(2, 1).unflatten(2, (H, W)) # N x hid_dim x H x W
-    
+
         if self.mode in ('pose', 'flow&pose'):
             calibration_vector = self.calibration_to_vector_(K_q, K_s, scales_q, scales_s)
             calibration_parameters = self.intrinsics_mlp(calibration_vector) # hid_out_dim*2
@@ -269,7 +270,7 @@ def depo_v4():
         cross_encoder=cross_encoder,
         pose_regressor=pose_regressor,
         hid_dim=256,
-        num_emb=128,
+        hid_out_dim=128,
         mode='flow&pose',
         upsample_factor=8)
 
@@ -289,9 +290,9 @@ def depo_v6():
 
 
 def depo_v7():
-    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
-    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
-    cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
+    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=128, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = LatentTransformerRegressor(
                  num_queries=200, d_model=128, d_compressed=32,
                  num_decoder_layers=6, nhead=8, dim_feedforward=2048,
@@ -301,16 +302,16 @@ def depo_v7():
         self_encoder=self_encoder,
         cross_encoder=cross_encoder,
         pose_regressor=pose_regressor,
-        hid_dim=256,
+        hid_dim=128,
         hid_out_dim=128,
         mode='flow&pose',
         upsample_factor=8)
 
 
 def depo_v8():
-    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
-    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
-    cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
+    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=128, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = LatentTransformerRegressor(
                  num_queries=200, d_model=128, d_compressed=32,
                  num_decoder_layers=6, nhead=8, dim_feedforward=2048,
@@ -320,7 +321,7 @@ def depo_v8():
         self_encoder=self_encoder,
         cross_encoder=cross_encoder,
         pose_regressor=pose_regressor,
-        hid_dim=256,
+        hid_dim=128,
         hid_out_dim=128,
         mode='pose',
         upsample_factor=8)
@@ -340,6 +341,20 @@ def depo_v9():
         mode='flow&pose',
         upsample_factor=8)
 
+
+def depo_v10():
+    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=128, num_heads=8, topks=[16, 16, 8], scale=3)
+    pose_regressor = DensePoseRegressorV5(128)
+    return DEPO_v2(
+        self_encoder=self_encoder,
+        cross_encoder=cross_encoder,
+        pose_regressor=pose_regressor,
+        hid_dim=128,
+        hid_out_dim=128,
+        mode='flow&pose',
+        upsample_factor=8)
 
 ############################Legacy####################################
 ######################################################################
