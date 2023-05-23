@@ -63,6 +63,7 @@ def create_normalized_grid(size: tuple, K: torch.Tensor, scales: tuple=(1., 1.))
 # Changes wrt to v1
 # 1. Logic: features_q - features_qc -> features_qc - features_q: 
 # 2. Code: faltten(), in self.pose_regressor() for mode in {'pose', 'flow&pose'} all argeument except of geometry were redundant -> clean
+# add
 # 3. Model: add normalization to geometry_decoder
 class DEPO_v2(nn.Module):
     """
@@ -162,12 +163,12 @@ class DEPO_v2(nn.Module):
         B = img_q.size(0)
         imgs = normalize_imgs(torch.cat((img_q, img_s), dim=0))
         features = self.self_encoder(imgs)
-        features_q, features_s = features.split(B) # B x hid_dim x H x W
+        
+        if len(features.size()) == 4: # For FocalNet output already has size B*2 x HW x hid_dim
+            features = features.flatten(2).transpose(2, 1)
+        features_q, features_s = features.split(B, dim=0) # B x HW x hid_dim
         
         #Apply cross-attention module
-        if len(features.size()) != 3: # For FocalNet output already has size B x HW x hid_dim
-            features_q = features_q.flatten(2).transpose(2, 1)
-            features_s = features_s.flatten(2).transpose(2, 1)
         features_qc = self.cross_encoder(features_q, features_s, H, W) # B x HW x hid_dim
 
         #Hidden geometry extraction
@@ -589,7 +590,7 @@ class DEPO_v1(nn.Module):
         features = self.self_encoder(imgs)
         
         #Apply cross-attention module
-        features_q, features_s = features.split(B) # N x hid_dim x H x W 
+        features_q, features_s = features.split(B, dim=0) # N x hid_dim x H x W 
         features_q = features_q.contiguous().view((B, self.hid_dim, H*W)).transpose(2, 1)
         features_s = features_s.contiguous().view((B, self.hid_dim, H*W)).transpose(2, 1)
         features_qc = self.cross_encoder(features_q, features_s, H, W) # B x HW x hid_dim
