@@ -14,7 +14,7 @@ from twins_backbone import (
     alt_gvt_small_partial, alt_gvt_base_partial, alt_gvt_large_partial
 )
 from focalnet_backbone import focalnet_base_partial
-from pose_regressors import DensePoseRegressorV1, DensePoseRegressorV2, DensePoseRegressorV3, DensePoseRegressorV4, DensePoseRegressorV5, DensePoseRegressorV6
+from pose_regressors import DensePoseRegressorV1, DensePoseRegressorV2, DensePoseRegressorV3, DensePoseRegressorV4, DensePoseRegressorV5, DensePoseRegressorV6, DensePoseRegressorV7
 from latent_regressor import LatentTransformerRegressor
 
 
@@ -356,6 +356,23 @@ def depo_v10():
         hid_out_dim=128,
         mode='flow&pose',
         upsample_factor=8)
+
+
+
+def depo_v11():
+    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=128, num_heads=8, topks=[16, 16, 8], scale=3)
+    pose_regressor = DensePoseRegressorV7(128, loss_weights=[0., -3., -3.])
+    return DEPO_v2(
+        self_encoder=self_encoder,
+        cross_encoder=cross_encoder,
+        pose_regressor=pose_regressor,
+        hid_dim=128,
+        hid_out_dim=128,
+        mode='flow&pose',
+        upsample_factor=8)
+
 
 ############################Legacy####################################
 ######################################################################

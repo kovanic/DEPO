@@ -23,3 +23,5 @@ class LossMixedDetermininstic:
             t_loss, q_loss, _ = self.loss_pose(q, t, T_0to1, weights)
             # flow_loss = ((torch.abs(flow_0to1 - flow) * mask)).mean((1, 2, 3))
             return None, q_loss, t_loss
+        
+
