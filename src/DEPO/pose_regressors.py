@@ -200,3 +200,33 @@ class DensePoseRegressorV6(nn.Module):
         q[:, 0] = torch.abs(q.clone()[:, 0])
         q = q / norm(q, ord=2, dim=1, keepdim=True)
         return q, t
+    
+    
+    
+class DensePoseRegressorV7(nn.Module):
+    def __init__(self, in_ch, loss_weights=[0., -3., -3.]):
+        super(DensePoseRegressorV7, self).__init__()
+        loss_weights = torch.nn.Parameter(torch.tensor(loss_weights))
+        self.register_parameter('loss_weights', loss_weights)
+        self.in_ch = in_ch
+        
+        self.decoder = nn.Sequential(
+            ResNetBlock(in_ch, in_ch, 60, 80, 3, 1),
+            ResNetBlock(in_ch, in_ch, 60, 80, 3, 2, groups=2),
+            ResNetBlock(in_ch, in_ch, 30, 40, 3, 2, groups=2),
+            ResNetBlock(in_ch, in_ch, 15, 20, 3, 2, groups=2),
+            ResNetBlock(in_ch, in_ch, 8, 10, 3, 2, groups=2),    
+            nn.Conv2d(in_ch, in_ch, (4, 5), 1, 0, groups=2),
+            nn.LeakyReLU(0.1)
+        )
+        self.translation_conv = nn.Conv2d(in_ch // 2, 3, 1, 1, 0)
+        self.angle_conv = nn.Conv2d(in_ch // 2, 4, 1, 1, 0)
+        
+        
+    def forward(self, x):               
+        x = self.decoder(x)
+        t = self.translation_conv(x[:, :self.in_ch // 2, ...]).squeeze(2).squeeze(2)
+        q = self.angle_conv(x[:, self.in_ch // 2:, ...]).squeeze(2).squeeze(2) #B x 4 x 1 x 1 -> B x 4
+        q[:, 0] = torch.abs(q.clone()[:, 0])
+        q = q / norm(q, ord=2, dim=1, keepdim=True)
+        return q, t

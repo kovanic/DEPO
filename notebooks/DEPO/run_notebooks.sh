@@ -7,7 +7,7 @@ jupyter_to_python() {
 
 # Define a function to run a Python script
 run_python_script() {
-    python3 "$1" -n 16
+    python3 "$1" -n 12
 }
 
 # Define a function to delete a file
