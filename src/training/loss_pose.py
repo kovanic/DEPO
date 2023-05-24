@@ -40,12 +40,14 @@ class LossPose:
         if self.t_norm == 'l1':
             L_1 = torch.abs(t_gt - t).sum(dim=1)
         else:
-            L_1 = torch.norm(t_gt - t, p=2, dim=1)
+            L_1 = norm(t_gt - t, ord=2, dim=1)
             
         L_2 = torch.abs(q_gt - q).sum(dim=1) 
         L_3 = 0.
-        if ((weights is not None) and (len(weights) == 3)) or self.add_l2:
+        if ((weights is not None) and (len(weights) == 3)): # probabilistic case: gaussian
             L_3 = ((t_gt / norm(t_gt, ord=2, dim=1, keepdim=True) - t / norm(t, ord=2, dim=1, keepdim=True)) ** 2).sum(dim=1)
+        if self.add_l2: # deterministic case
+            L_3 = norm((t_gt / norm(t_gt, ord=2, dim=1, keepdim=True) - t / norm(t, ord=2, dim=1, keepdim=True)), ord=2, dim=1)
         
         if weights is not None:
             L_1 = L_1 * torch.exp(-weights[0]) + 3*weights[0]
@@ -60,7 +62,49 @@ class LossPose:
         else:
             return L_1, L_2, L_3
         
-    
+
+        
+        
+class LossPoseRelative:
+    '''Calculate weighted loss between ground-truth and predicted translation
+    and set of rotations (lying in quaternion space).
+    :param agg_type: type of used aggregation: None, mean, sum
+    '''
+    def __init__(self, agg_type=None):
+        self.agg_type = agg_type
+
+        
+    def __call__(self, q: torch.Tensor, t: torch.Tensor, T_0to1: torch.Tensor):
+        '''
+        :param q: predicted normalized quaternions tensor, order [w, x, y, z], B x 4
+        :param t: predicted translations tensor, B x 3
+        :param T_0to1: ground-truth realtive pose, B x 4 x 4
+        :return: loss value
+        '''
+        R_gt, t_gt = T_0to1[:, :3, :3], T_0to1[:, :3, 3]
+
+        # Note: scipy returns normalized quaternion in [x, y, z, w] order
+        # Note: det(R) = 1, otherwise it is not from SO(3)
+        q_gt = torch.from_numpy(
+            Rotation.from_matrix(R_gt).as_quat()
+        ).to(q.device)
+        
+        q_gt = q_gt[:, [3, 0, 1, 2]]
+        q_gt[q_gt[:, 0] < 0] = -q_gt[q_gt[:, 0] < 0] 
+       
+        t_gt = t_gt.to(t.device)
+        
+        L_1 = norm(t_gt / norm(t_gt, ord=2, dim=1, keepdim=True) - t / norm(t, ord=2, dim=1, keepdim=True), ord=2, dim=1) 
+        L_2 = norm(q_gt - q, ord=1, dim=1)
+
+        if self.agg_type == 'mean':
+            return (L_1 + L_2).mean()
+        elif self.agg_type == 'sum':
+            return (L_1 + L_2).sum()
+        else:
+            return L_1, L_2
+        
+        
 class LossPoseV1:
     '''Calculate loss between ground-truth and predicted normalized translation, magnitude and
     rotations (lying in quaternion space).

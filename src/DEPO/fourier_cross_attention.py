@@ -52,8 +52,8 @@ class FourierCrossAttention(nn.Module):
         feature_q = feature_q.transpose(1, 2).unfaltten(2, (H, W))
         feature_s = feature_s.transpose(1, 2).unfaltten(2, (H, W))
         
-        ft_q = rfftn(feature_q) # B x dim x H x ⌊W / 2⌋
-        ft_s = rfftn(feature_s) # B x dim x H x ⌊W / 2⌋
+        ft_q = rfftn(feature_q) # B x dim x H x (⌊W / 2⌋ + 1)
+        ft_s = rfftn(feature_s) # B x dim x H x (⌊W / 2⌋ + 1)
         
         if self.mode == "v1":
             ft = torch.cat([torch.real(ft_q), torch.imag(ft_q), torch.real(ft_s), torch.imag(ft_s)], dim=1)
