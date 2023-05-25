@@ -91,7 +91,7 @@ class LatentTransformerRegressor(nn.Module):
         decoded_patterns = self.decoder(tgt, geometry, memory_key_padding_mask=None,
                           pos=pos_embed, query_pos=query_embed)
         decoded_patterns = decoded_patterns.permute(1, 2, 0) # (B x d_model x num_queries)
-        decoded_patterns = self.final_compressor(decoded_patterns)
+        decoded_patterns = self.final_compressor(decoded_patterns) # (B x d_compressed x num_queries)
         decoded_patterns = decoded_patterns.flatten(1).unsqueeze(2) # (B x input_fc_dim x 1)
         decoded_patterns = self.pose_decoder(decoded_patterns)
         

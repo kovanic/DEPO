@@ -145,12 +145,9 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
                     scheduler.step()
                     
                 #SWA update at each n_steps_between_swa_updates steps of last `n_epochs_swa` epochs.
-                if (swa and (scheduler.step_ > (n_epochs - n_epochs_swa) * n_steps_per_epoch) and
-                   ((scheduler.step_ % n_steps_between_swa_updates == 0) or (scheduler.step_ % step_per_epoch == 0))):
+                if swa and scheduler.swa_needs_update():
                     swa_model.update_parameters(model)
            
-                
-            
             data = None
             for key, val in train_loss_epoch.items():
                 train_loss_epoch[key] = val / len(train_loader.dataset)
@@ -165,7 +162,7 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
                        "Train loss epoch (flow)": train_loss_epoch['flow'],
                        "Train loss epoch (q)": train_loss_epoch['q'],
                        "Train loss epoch (t)": train_loss_epoch['t'],
-                       # "Val loss epoch(flow)": loss_val_epoch_q,
+                       # "Val loss epoch(flow)": loss_val_epoch_flow,
                        "Val loss epoch(q)": loss_val_epoch_q,
                        "Val loss epoch(t)": loss_val_epoch_t
                       })
@@ -173,10 +170,57 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
             if (epoch + 1) % repeat_save_epoch == 0:
                 save_model(model, epoch, model_save_path, optimizer, scheduler)
         if swa:
+            # I haven't used BatchNorm anywhere
             # update_bn(loader_train, swa_model, device)
-            save_model(swa_model.module, f'{model_save_path}_swa.pth')
+            save_model(swa_model.module, epoch, model_save_path+'swa', optimizer, scheduler)
 
+
+
+class MixedScheduler:
+    def __init__(self, base_scheduler, swa_scheduler,
+                 n_epochs, n_epochs_swa, n_steps_per_epoch,
+                 n_swa_anneal_steps, n_steps_between_swa_updates):
+        self.base_scheduler = base_scheduler
+        self.swa_scheduler = swa_scheduler
+        self.scheduler = self.base_scheduler
+        self.n_epochs = n_epochs
+        self.n_epochs_swa = n_epochs_swa
+        self.n_steps_per_epoch = n_steps_per_epoch
+        self.n_swa_anneal_steps = n_swa_anneal_steps
+        self.n_steps_between_swa_updates = n_steps_between_swa_updates
+        self._step = 0
+        self._swa_step = 0
+        self.swa_active = False
+        
+    def swa_needs_update(self):
+        if (self.swa_active and
+            (self._swa_step - self.n_swa_anneal_steps > 0) and
+            (((self._swa_step - self.n_swa_anneal_steps) % self.n_steps_between_swa_updates == 0) or 
+            (self._swa_step == self.n_steps_per_epoch - 1))):
+            return True
+        else:
+            return False
+        
+    def get_epoch(self):
+        return self._step // self.n_steps_per_epoch
+    
+    def switch_scheduler(self):
+        if (self.get_epoch() < self.n_epochs - self.n_epochs_swa):
+            self.scheduler = self.base_scheduler
+        else:
+            self.scheduler = self.swa_scheduler
+            self.swa_active = True
+            self._swa_step += 1
             
+    def step(self):
+        self.switch_scheduler()
+        self.scheduler.step()
+        self._step += 1
+        
+    def get_last_lr(self):
+        return self.scheduler.get_last_lr()
+    
+    
             
 @torch.no_grad()
 def update_bn(loader, model, device=None):
@@ -224,7 +268,7 @@ def update_bn(loader, model, device=None):
                 data[key] = data[key].to(device)
                              
         B = data['image_0'].size(0)
-        model(
+        flow, q, t = model(
             img_q=data['image_0'], img_s=data['image_1'],
             K_q=data['K_0'], K_s=data['K_1'],
             scales_q=0.125 * torch.ones((B, 2), device=device),

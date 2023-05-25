@@ -7,6 +7,7 @@ sys.path.append(dir_name)
 import torch
 from torch import nn
 import torch.nn.functional as F
+import math 
 
 from quadtree_attention import QuadtreeAttention
 from fourier_cross_attention import FourierCrossAttention
@@ -97,16 +98,15 @@ class DEPO_v2(nn.Module):
         self.self_encoder = self_encoder
         self.cross_encoder = cross_encoder     
         
-        self.geometry_decoder = nn.ModuleList()
         if delta_layer == 'cat':
-            self.geometry_decoder.append(
-                nn.Sequential(
-                    nn.Linear(hid_dim * 2, hid_dim),
-                    nn.LayerNorm(hid_dim) if use_ln_in_decoder else nn.Identity(),
-                    nn.LeakyReLU(0.1)))
-        
-        self.geometry_decoder.append(
-            nn.Sequential(
+            self.delta = nn.Sequential(
+                nn.Linear(hid_dim * 2, hid_dim),
+                nn.LayerNorm(hid_dim) if use_ln_in_decoder else nn.Identity(),
+                nn.LeakyReLU(0.1))
+        else:
+            self.delta = nn.Identity()
+            
+        self.geometry_decoder = nn.Sequential(
                 nn.Linear(hid_dim, 1024),
                 nn.LayerNorm(1024) if use_ln_in_decoder else nn.Identity(),
                 nn.LeakyReLU(0.1),
@@ -118,7 +118,7 @@ class DEPO_v2(nn.Module):
                 nn.LeakyReLU(0.1),
                 nn.Linear(hid_dim, hid_out_dim),
                 nn.LayerNorm(hid_out_dim) if use_ln_in_decoder else nn.Identity(),
-                nn.LeakyReLU(0.1)))
+                nn.LeakyReLU(0.1))
         
         if add_abs_pos_enc:
             self.register_buffer("pe", make_fixed_pe(H, W, hid_out_dim // 2).unsqueeze(0))
@@ -207,7 +207,8 @@ class DEPO_v2(nn.Module):
             features_q_delta = features_qc - features_q
         if self.delta_layer == "cat":
             features_q_delta = torch.cat([features_q, features_qc], dim=2)
-            
+        
+        features_q_delta = self.delta(features_q_delta)
         hidden_geometry = self.geometry_decoder(features_q_delta).transpose(2, 1).unflatten(2, (H, W)) # N x hid_dim x H x W
 
         if self.mode in ('pose', 'flow&pose'):
@@ -215,8 +216,9 @@ class DEPO_v2(nn.Module):
             calibration_parameters = self.intrinsics_mlp(calibration_vector) # hid_out_dim*2
             mu, sigma = calibration_parameters[:, :self.hid_out_dim, None, None], torch.exp(calibration_parameters[:, self.hid_out_dim:, None, None])
             if self.add_abs_pos_enc:
-                hidden_geometry = hidden_geometry + self.pe.repeat(B, 1, 1, 1)
-            pose_regressor_input = (hidden_geometry - mu) / sigma
+                pose_regressor_input = (hidden_geometry + self.pe.repeat(B, 1, 1, 1) - mu) / sigma
+            else:
+                pose_regressor_input = (hidden_geometry - mu) / sigma
 
             q, t = self.pose_regressor(pose_regressor_input)
         
@@ -253,7 +255,7 @@ def A1():
         hid_dim=256,
         hid_out_dim=128,
         mode='flow&pose',
-        upsample_factor=8
+        upsample_factor=8,
         delta_layer='-',
         use_ln_in_decoder=False,
         add_abs_pos_enc=False,
@@ -272,7 +274,7 @@ def A2():
         hid_dim=256,
         hid_out_dim=128,
         mode='flow&pose',
-        upsample_factor=8
+        upsample_factor=8,
         delta_layer='-',
         use_ln_in_decoder=True,
         add_abs_pos_enc=False,
@@ -291,12 +293,87 @@ def A3():
         hid_dim=256,
         hid_out_dim=128,
         mode='flow&pose',
-        upsample_factor=8
+        upsample_factor=8,
         delta_layer='r-',
         use_ln_in_decoder=False,
         add_abs_pos_enc=False,
         H=60, W=80)
 
+
+def A4():
+    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
+    pose_regressor = DensePoseRegressorV5(128)
+    return DEPO_v2(
+        self_encoder=self_encoder,
+        cross_encoder=cross_encoder,
+        pose_regressor=pose_regressor,
+        hid_dim=256,
+        hid_out_dim=128,
+        mode='flow&pose',
+        upsample_factor=8,
+        delta_layer='r-',
+        use_ln_in_decoder=False,
+        add_abs_pos_enc=True,
+        H=60, W=80)
+
+
+def A5():
+    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
+    pose_regressor = DensePoseRegressorV5(128)
+    return DEPO_v2(
+        self_encoder=self_encoder,
+        cross_encoder=cross_encoder,
+        pose_regressor=pose_regressor,
+        hid_dim=256,
+        hid_out_dim=128,
+        mode='flow&pose',
+        upsample_factor=8,
+        delta_layer='cat',
+        use_ln_in_decoder=False,
+        add_abs_pos_enc=False,
+        H=60, W=80)
+
+
+def A6():
+    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
+    pose_regressor = DensePoseRegressorV5(128)
+    return DEPO_v2(
+        self_encoder=self_encoder,
+        cross_encoder=cross_encoder,
+        pose_regressor=pose_regressor,
+        hid_dim=256,
+        hid_out_dim=128,
+        mode='flow&pose',
+        upsample_factor=8,
+        delta_layer='cat',
+        use_ln_in_decoder=False,
+        add_abs_pos_enc=True,
+        H=60, W=80)
+
+
+def A7():
+    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
+    pose_regressor = DensePoseRegressorV5(256)
+    return DEPO_v2(
+        self_encoder=self_encoder,
+        cross_encoder=cross_encoder,
+        pose_regressor=pose_regressor,
+        hid_dim=256,
+        hid_out_dim=256,
+        mode='flow&pose',
+        upsample_factor=8,
+        delta_layer='cat',
+        use_ln_in_decoder=False,
+        add_abs_pos_enc=True,
+        H=60, W=80)
 
 
 
