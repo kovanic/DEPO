@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# LaDEPO flow&pose: PCPVT-L + QuadTree-B + flow & pose latent, weighted loss
+
 # In[1]:
 
 
@@ -12,7 +14,7 @@
 
 
 import sys
-sys.path.append('../../../src')
+sys.path.append('../../src')
 
 
 # In[3]:
@@ -23,9 +25,9 @@ import torch
 from torch.utils.data import DataLoader
 
 from data.scannet.utils_scannet_fast import ScanNetDataset
-from DEPO.depo_ablations import A6
-from training.train_depo_pose_and_flow import train, validate
-from training.loss_depo import LossMixedDetermininstic
+from DEPO.depo import depo_v7
+from training.train_depo_pose_and_flow_weighted import train, validate
+from training.loss_depo import LossMixedDetermininsticWeighted
 from utils.model import load_checkpoint
 import numpy as np
 
@@ -39,21 +41,21 @@ from transformers import get_scheduler
 
 train_data = ScanNetDataset(
     root_dir='/home/project/data/scans/',
-    npz_path='/home/project/code/data/scannet_splits/train_subset_ablations.npz',
+    npz_path='/home/project/code/data/scannet_splits/smart_sample_train_ft.npz',
     intrinsics_path='/home/project/ScanNet/scannet_indices/intrinsics.npz',
     calculate_flow=True
 )
 
-train_loader = DataLoader(train_data, batch_size=32, shuffle=True, drop_last=True, pin_memory=True, num_workers=4)
+train_loader = DataLoader(train_data, batch_size=16, shuffle=True, drop_last=True, pin_memory=True, num_workers=4)
 
 val_data = ScanNetDataset(
     root_dir='/home/project/data/scans/',
-    npz_path='/home/project/code/data/scannet_splits/val_subset_ablations.npz',
+    npz_path='/home/project/code/data/scannet_splits/smart_sample_val.npz',
     intrinsics_path='/home/project/ScanNet/scannet_indices/intrinsics.npz',
     calculate_flow=False
 )
 
-val_loader = DataLoader(val_data, batch_size=32, shuffle=False, drop_last=False, pin_memory=True, num_workers=4)
+val_loader = DataLoader(val_data, batch_size=16, shuffle=False, drop_last=False, pin_memory=True, num_workers=4)
 
 
 # #### Config
@@ -65,7 +67,7 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 config = dict(
-    experiment_name='A8:A6,B=128,lr=1e-3,wd=1e-5,cos,1wu',
+    experiment_name='ladepo_flow_and_pose',
     device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu'),
     n_epochs=10,
     n_accum_steps=4,
@@ -75,8 +77,8 @@ config = dict(
     n_epochs_swa=None,
     n_steps_between_swa_updates=None,
     repeat_val_epoch=1,
-    repeat_save_epoch=20,
-    model_save_path='../../src/weights/A8'
+    repeat_save_epoch=1,
+    model_save_path='../../src/weights/ladepo_flow_and_pose'
 )
 
 config['n_effective_steps_per_epoch'] = np.ceil(len(train_loader.dataset) / (train_loader.batch_size * config['n_accum_steps'])) 
@@ -89,7 +91,7 @@ config['n_training_steps'] = int(config['n_effective_steps_per_epoch'] * config[
 # In[6]:
 
 
-model = A6().to(config['device'])
+model = depo_v7().to(config['device'])
 
 for name, p in model.named_parameters():
     if 'self_encoder' in name:
@@ -103,14 +105,15 @@ for name, p in model.named_parameters():
 # In[7]:
 
 
-val_loss = LossMixedDetermininstic(mode='val')
-train_loss = LossMixedDetermininstic(mode='train', add_l2=False)
+val_loss = LossMixedDetermininsticWeighted(mode='val', weights=None)
+train_loss = LossMixedDetermininsticWeighted(mode='train', weights=[-2., -3., 0.], add_l2=False)
 
 
 # In[8]:
 
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-5)
+optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=1e-6)
+weights_optimizer = torch.optim.SGD([train_loss.weights], lr=1e-4)
 
 
 # In[9]:
@@ -120,7 +123,7 @@ scheduler = get_scheduler(
     "cosine",    
     optimizer=optimizer,
     num_warmup_steps=config['n_warmup_steps'],
-    num_training_steps=config['n_training_steps'] 
+    num_training_steps=config['n_training_steps']
 )
 
 
@@ -129,5 +132,5 @@ scheduler = get_scheduler(
 # In[ ]:
 
 
-train(model, optimizer, scheduler, train_loss, val_loss, train_loader, val_loader, config, **config)
+train(model, optimizer, weights_optimizer, scheduler, train_loss, val_loss, train_loader, val_loader, config, **config)
 

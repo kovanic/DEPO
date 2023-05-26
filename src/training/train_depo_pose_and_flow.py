@@ -220,6 +220,25 @@ class MixedScheduler:
     def get_last_lr(self):
         return self.scheduler.get_last_lr()
     
+
+class WarmupStepLR(torch.optim.lr_scheduler._LRScheduler):
+    def __init__(self, optimizer, step_size, gamma, min_lr, warmup_steps=5, warmup_lr_init=1e-7,
+                 last_epoch=-1, verbose=False, **kwargs):
+        self.warmup_steps = warmup_steps
+        self.warmup_lr_init = warmup_lr_init
+        self.step_size = step_size
+        self.gamma = gamma
+        self.min_lr = min_lr
+        super().__init__(optimizer, last_epoch, verbose)
+
+    def get_lr(self):
+        if self.last_epoch <= self.warmup_steps:
+            return [self.warmup_lr_init + (self.base_lrs[group] - self.warmup_lr_init) * self.last_epoch / self.warmup_steps \
+                    for group in range(len(self.optimizer.param_groups))]
+        elif (self.last_epoch - self.warmup_steps) % self.step_size:
+            return [group['lr'] for group in self.optimizer.param_groups]
+        else:
+            return [np.maximum(group['lr'] * self.gamma, self.min_lr) for group in self.optimizer.param_groups]
     
             
 @torch.no_grad()

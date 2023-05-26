@@ -13,24 +13,27 @@ from scipy.spatial.transform import Rotation
 @torch.no_grad()
 def validate(model, val_loss, val_loader, device):
     model.eval()
+    # val_loss_flow = []
     val_loss_q = []
     val_loss_t = []
     for data in tqdm(val_loader):
         for key in data.keys():
-            if key in ('image_0', 'image_1', 'K_0', 'K_1'):
+            if key in ('image_0', 'image_1', 'K_0', 'K_1', 'flow_0to1', 'mask'):
                 data[key] = data[key].to(device)   
         B = data['image_0'].size(0)
-        _, q, t = model(
+        flow, q, t = model(
             img_q=data['image_0'], img_s=data['image_1'],
             K_q=data['K_0'], K_s=data['K_1'],
             scales_q=0.125 * torch.ones((B, 2), device=device),
             scales_s=0.125 * torch.ones((B, 2), device=device),
             H=60, W=80)
-        loss_t, loss_q, _ = val_loss(q, t, data['T_0to1'], None)
-        
+        loss_flow, loss_q, loss_t = val_loss(flow, q, t, data['T_0to1'], None, None)
+        # val_loss_flow.append(loss_flow.sum().item())
         val_loss_q.append(loss_q.sum().item())
         val_loss_t.append(loss_t.sum().item())
-    return (np.sum(val_loss_q) / len(val_loader.dataset),
+    return (
+            None, # np.sum(val_loss_flow) / len(val_loader.dataset),
+            np.sum(val_loss_q) / len(val_loader.dataset),
             np.sum(val_loss_t) / len(val_loader.dataset))
 
 
@@ -76,76 +79,89 @@ def test(model, loader, device):
 
 
 
-def train(model, optimizer, scheduler, train_loss, val_loss,
+def train(model, optimizer, weights_optimizer, scheduler, train_loss, val_loss,
           train_loader, val_loader,
           config, experiment_name, device,
           n_epochs, n_steps_per_epoch, n_accum_steps,
           swa, n_epochs_swa, n_steps_between_swa_updates,
           repeat_val_epoch, repeat_save_epoch,
-          batch_size, model_save_path, scheduler_step='epoch', **args):
+          batch_size, model_save_path, **args):
     
-    with wandb.init(project="Diploma", config=config, name=experiment_name) as exp:
+    with wandb.init(project="Diploma", config=config, name=experiment_name) as exp:      
         if swa:
             swa_model = AveragedModel(model)
             swa_model.to(device)
         
         for epoch in range(n_epochs):
-            train_loss_epoch = 0
-            train_batch_loss = 0
+            train_loss_epoch = {'total':0., 'flow': 0., 'q': 0., 't':0.}
+            train_batch_loss = {'total':0., 'flow': 0., 'q': 0., 't':0.}
             
             model.train()
             for i, data in tqdm(enumerate(train_loader), total=n_steps_per_epoch):
                 for key in data.keys():
-                    if key in ('image_0', 'image_1', 'K_0', 'K_1'):
+                    if key in ('image_0', 'image_1', 'K_0', 'K_1', 'flow_0to1', 'mask'):
                         data[key] = data[key].to(device)
                 
                 B = data['image_0'].size(0)
-                _, q, t = model(
+                flow, q, t = model(
                     img_q=data['image_0'], img_s=data['image_1'],
                     K_q=data['K_0'], K_s=data['K_1'],
                     scales_q=0.125 * torch.ones((B, 2), device=device),
                     scales_s=0.125 * torch.ones((B, 2), device=device),
                     H=60, W=80)
                 
-                if hasattr(model, 'loss_weights'):
-                    weights = model.pose_regressor.loss_weights
-                else:
-                    weights = None
     
-                loss = train_loss(q, t, data['T_0to1'], weights) / n_accum_steps
+                loss, flow_loss, q_loss, t_loss = train_loss(flow, q, t, data['T_0to1'], data['flow_0to1'], data['mask'])
+                loss = loss / n_accum_steps
                 loss.backward()
                 
-                train_batch_loss += loss.item() * n_accum_steps * batch_size
-
+                train_batch_loss['total'] += loss.item() * n_accum_steps * batch_size
+                train_batch_loss['flow'] += flow_loss.item() * batch_size
+                train_batch_loss['q'] += q_loss.item() * batch_size
+                train_batch_loss['t'] += t_loss.item() * batch_size
+                
                 if ((i + 1) % n_accum_steps == 0) or ((i + 1) == n_steps_per_epoch):
                     # nn.utils.clip_grad_norm_(model.parameters(), 5)
                     
                     optimizer.step()
+                    weights_optimizer.step()
+                    weights_optimizer.zero_grad(set_to_none=True)
                     model.zero_grad(set_to_none=True)
-                    train_loss_epoch += train_batch_loss
+                    
+                    train_loss_epoch['total'] += train_batch_loss['total']
+                    train_loss_epoch['flow'] += train_batch_loss['flow']
+                    train_loss_epoch['q'] += train_batch_loss['q']
+                    train_loss_epoch['t'] += train_batch_loss['t']
+                    
                     wandb.log({
-                        "Train batch loss (total)": train_batch_loss / (batch_size * n_accum_steps)
+                        "Train batch loss (total)": train_batch_loss['total'] / (batch_size * n_accum_steps),
+                        "Train batch loss (flow)": train_batch_loss['flow'] / (batch_size * n_accum_steps),
+                        "Train batch loss (q)": train_batch_loss['q'] / (batch_size * n_accum_steps),
+                        "Train batch loss (t)": train_batch_loss['t'] / (batch_size * n_accum_steps)
                     })
-                    train_batch_loss = 0
-                    if scheduler_step == 'step':
-                        scheduler.step()
-                
+                    
+                    train_batch_loss = {'total':0., 'flow': 0., 'q': 0., 't':0.}
+                    scheduler.step()
+                    
                 #SWA update at each n_steps_between_swa_updates steps of last `n_epochs_swa` epochs.
                 if swa and scheduler.swa_needs_update():
                     swa_model.update_parameters(model)
-               
-            if scheduler_step == 'epoch':
-                scheduler.step()
+           
             data = None
-            train_loss_epoch /= len(train_loader.dataset)
+            for key, val in train_loss_epoch.items():
+                train_loss_epoch[key] = val / len(train_loader.dataset)
         
             if (epoch + 1) % repeat_val_epoch == 0:
-                loss_val_epoch_q, loss_val_epoch_t = validate(model, val_loss, val_loader, device)
+                loss_val_epoch_flow, loss_val_epoch_q, loss_val_epoch_t = validate(model, val_loss, val_loader, device)
 
-            print(f'epoch {epoch}: val loss(q)={loss_val_epoch_q}, val loss(t)={loss_val_epoch_t}')
+            print(f'epoch {epoch}: val loss(flow)={loss_val_epoch_flow},\n val loss(q)={loss_val_epoch_q}, val loss(t)={loss_val_epoch_t}')
 
             wandb.log({
-                       "Train loss epoch (total)": train_loss_epoch,
+                       "Train loss epoch (total)": train_loss_epoch['total'],
+                       "Train loss epoch (flow)": train_loss_epoch['flow'],
+                       "Train loss epoch (q)": train_loss_epoch['q'],
+                       "Train loss epoch (t)": train_loss_epoch['t'],
+                       # "Val loss epoch(flow)": loss_val_epoch_flow,
                        "Val loss epoch(q)": loss_val_epoch_q,
                        "Val loss epoch(t)": loss_val_epoch_t
                       })
@@ -153,10 +169,76 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
             if (epoch + 1) % repeat_save_epoch == 0:
                 save_model(model, epoch, model_save_path, optimizer, scheduler)
         if swa:
+            # I haven't used BatchNorm anywhere
             # update_bn(loader_train, swa_model, device)
-            save_model(swa_model.module, f'{model_save_path}_swa.pth')
+            save_model(swa_model.module, epoch, model_save_path+'swa', optimizer, scheduler)
 
+
+
+class MixedScheduler:
+    def __init__(self, base_scheduler, swa_scheduler,
+                 n_epochs, n_epochs_swa, n_steps_per_epoch,
+                 n_swa_anneal_steps, n_steps_between_swa_updates):
+        self.base_scheduler = base_scheduler
+        self.swa_scheduler = swa_scheduler
+        self.scheduler = self.base_scheduler
+        self.n_epochs = n_epochs
+        self.n_epochs_swa = n_epochs_swa
+        self.n_steps_per_epoch = n_steps_per_epoch
+        self.n_swa_anneal_steps = n_swa_anneal_steps
+        self.n_steps_between_swa_updates = n_steps_between_swa_updates
+        self._step = 0
+        self._swa_step = 0
+        self.swa_active = False
+        
+    def swa_needs_update(self):
+        if (self.swa_active and
+            (self._swa_step - self.n_swa_anneal_steps > 0) and
+            (((self._swa_step - self.n_swa_anneal_steps) % self.n_steps_between_swa_updates == 0) or 
+            (self._swa_step == self.n_steps_per_epoch - 1))):
+            return True
+        else:
+            return False
+        
+    def get_epoch(self):
+        return self._step // self.n_steps_per_epoch
+    
+    def switch_scheduler(self):
+        if (self.get_epoch() < self.n_epochs - self.n_epochs_swa):
+            self.scheduler = self.base_scheduler
+        else:
+            self.scheduler = self.swa_scheduler
+            self.swa_active = True
+            self._swa_step += 1
             
+    def step(self):
+        self.switch_scheduler()
+        self.scheduler.step()
+        self._step += 1
+        
+    def get_last_lr(self):
+        return self.scheduler.get_last_lr()
+    
+
+class WarmupStepLR(torch.optim.lr_scheduler._LRScheduler):
+    def __init__(self, optimizer, step_size, gamma, min_lr, warmup_steps=5, warmup_lr_init=1e-7,
+                 last_epoch=-1, verbose=False, **kwargs):
+        self.warmup_steps = warmup_steps
+        self.warmup_lr_init = warmup_lr_init
+        self.step_size = step_size
+        self.gamma = gamma
+        self.min_lr = min_lr
+        super().__init__(optimizer, last_epoch, verbose)
+
+    def get_lr(self):
+        if self.last_epoch <= self.warmup_steps:
+            return [self.warmup_lr_init + (self.base_lrs[group] - self.warmup_lr_init) * self.last_epoch / self.warmup_steps \
+                    for group in range(len(self.optimizer.param_groups))]
+        elif (self.last_epoch - self.warmup_steps) % self.step_size:
+            return [group['lr'] for group in self.optimizer.param_groups]
+        else:
+            return [np.maximum(group['lr'] * self.gamma, self.min_lr) for group in self.optimizer.param_groups]
+    
             
 @torch.no_grad()
 def update_bn(loader, model, device=None):
@@ -200,13 +282,13 @@ def update_bn(loader, model, device=None):
 
     for data in loader:
         for key in data.keys():
-            if key in ('image0', 'image1', 'K0', 'K1', 'flow_0to1', 'mask'):
+            if key in ('image_0', 'image_1', 'K_0', 'K_1', 'flow_0to1', 'mask'):
                 data[key] = data[key].to(device)
                              
-        B = data['image0'].size(0)
-        model(
-            img_q=data['image0'], img_s=data['image1'],
-            K_q=data['K0'], K_s=data['K1'],
+        B = data['image_0'].size(0)
+        flow, q, t = model(
+            img_q=data['image_0'], img_s=data['image_1'],
+            K_q=data['K_0'], K_s=data['K_1'],
             scales_q=0.125 * torch.ones((B, 2), device=device),
             scales_s=0.125 * torch.ones((B, 2), device=device),
             H=60, W=80)

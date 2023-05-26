@@ -25,5 +25,5 @@ do
     run_python_script "${py_script}"
     
     # Delete the resulting Python script          
-     # delete_file "${py_script}"
+    delete_file "${py_script}"
 done

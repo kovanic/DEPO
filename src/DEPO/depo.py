@@ -19,6 +19,7 @@ from pose_regressors import DensePoseRegressorV1, DensePoseRegressorV2, DensePos
 from latent_regressor import LatentTransformerRegressor
 
 
+
 def normalize_imgs(imgs):
     # loaded images are in [0, 255]
     # normalize by ImageNet mean and std
@@ -61,39 +62,52 @@ def create_normalized_grid(size: tuple, K: torch.Tensor, scales: tuple=(1., 1.))
     return grid
 
 
-# Changes wrt to v1
-# 1. Logic: features_q - features_qc -> features_qc - features_q: 
-# 2. Code: faltten(), in self.pose_regressor() for mode in {'pose', 'flow&pose'} all argeument except of geometry were redundant -> clean
-# add
-# 3. Model: add normalization to geometry_decoder
-class DEPO_v2(nn.Module):
+
+class DEPO_v3(nn.Module):
     """
     :param mode: {'flow&pose', 'flow->pose', 'pose'}
     """
-    def __init__(self, self_encoder, cross_encoder, pose_regressor, mode, hid_dim, hid_out_dim, upsample_factor=1, ca='qt'):
-        super(DEPO_v2, self).__init__()
+    def __init__(
+        self, self_encoder, cross_encoder, pose_regressor,
+        mode, hid_dim, hid_out_dim, upsample_factor=1,
+        delta_layer='-', use_ln_in_decoder=False, add_abs_pos_enc=False,
+        H=60, W=80):
+        super(DEPO_v3, self).__init__()
          
         self.hid_dim = hid_dim
         self.hid_out_dim = hid_out_dim
         self.mode = mode
         self.upsample_factor = upsample_factor
-        self.ca = ca
-        
+        self.delta_layer = delta_layer
+        self.add_abs_pos_enc = add_abs_pos_enc
         self.self_encoder = self_encoder
-        self.cross_encoder = cross_encoder        
+        self.cross_encoder = cross_encoder     
+
+            
+        if delta_layer == 'cat':
+            self.delta = nn.Sequential(
+                nn.Linear(hid_dim * 2, hid_dim),
+                nn.LayerNorm(hid_dim) if use_ln_in_decoder else nn.Identity(),
+                nn.LeakyReLU(0.1))
+        else:
+            self.delta = nn.Identity()
+            
         self.geometry_decoder = nn.Sequential(
-            nn.Linear(hid_dim, 1024),
-            nn.LayerNorm(1024),
-            nn.LeakyReLU(0.1),
-            nn.Linear(1024, 1024),
-            nn.LayerNorm(1024),
-            nn.LeakyReLU(0.1),
-            nn.Linear(1024, hid_dim),
-            nn.LayerNorm(hid_dim),
-            nn.LeakyReLU(0.1),
-            nn.Linear(hid_dim, hid_out_dim),
-            nn.LayerNorm(hid_out_dim),
-            nn.LeakyReLU(0.1))
+                nn.Linear(hid_dim, 1024),
+                nn.LayerNorm(1024) if use_ln_in_decoder else nn.Identity(),
+                nn.LeakyReLU(0.1),
+                nn.Linear(1024, 1024),
+                nn.LayerNorm(1024) if use_ln_in_decoder else nn.Identity(),
+                nn.LeakyReLU(0.1),
+                nn.Linear(1024, hid_dim),
+                nn.LayerNorm(hid_dim) if use_ln_in_decoder else nn.Identity(),
+                nn.LeakyReLU(0.1),
+                nn.Linear(hid_dim, hid_out_dim),
+                nn.LayerNorm(hid_out_dim) if use_ln_in_decoder else nn.Identity(),
+                nn.LeakyReLU(0.1))
+        
+        if add_abs_pos_enc:
+            self.register_buffer("pe", make_fixed_pe(H, W, hid_out_dim // 2).unsqueeze(0))
         
         if self.mode in ('flow&pose', 'pose'):
             self.intrinsics_mlp = nn.Sequential(
@@ -173,18 +187,30 @@ class DEPO_v2(nn.Module):
         features_qc = self.cross_encoder(features_q, features_s, H, W) # B x HW x hid_dim
 
         #Hidden geometry extraction
-        hidden_geometry = self.geometry_decoder(features_qc - features_q).transpose(2, 1).unflatten(2, (H, W)) # N x hid_dim x H x W
+        if self.delta_layer == "-": 
+            features_q_delta = features_q - features_qc
+        if self.delta_layer == "r-": 
+            features_q_delta = features_qc - features_q
+        if self.delta_layer == "cat":
+            features_q_delta = torch.cat([features_q, features_qc], dim=2)
+        
+        features_q_delta = self.delta(features_q_delta)
+        hidden_geometry = self.geometry_decoder(features_q_delta).transpose(2, 1).unflatten(2, (H, W)) # N x hid_dim x H x W
 
         if self.mode in ('pose', 'flow&pose'):
             calibration_vector = self.calibration_to_vector_(K_q, K_s, scales_q, scales_s)
             calibration_parameters = self.intrinsics_mlp(calibration_vector) # hid_out_dim*2
             mu, sigma = calibration_parameters[:, :self.hid_out_dim, None, None], torch.exp(calibration_parameters[:, self.hid_out_dim:, None, None])
-            pose_regressor_input = (hidden_geometry - mu) / sigma
+            if self.add_abs_pos_enc:
+                pose_regressor_input = (hidden_geometry + self.pe.repeat(B, 1, 1, 1) - mu) / sigma
+            else:
+                pose_regressor_input = (hidden_geometry - mu) / sigma
+
             q, t = self.pose_regressor(pose_regressor_input)
         
         if 'flow' in self.mode:
             flow_coarse = self.flow_regressor(hidden_geometry)
-            flow = self.upsample_flow(flow_coarse, (features_qc - features_q).transpose(2, 1).unflatten(2, (H, W)))
+            flow = self.upsample_flow(flow_coarse, features_q_delta.transpose(2, 1).unflatten(2, (H, W)))
             
         if self.mode == 'pose':
             return None, q, t
@@ -198,6 +224,10 @@ class DEPO_v2(nn.Module):
             flow_coarse = torch.cat((flow_coarse, grid), dim=1) #B x 4 x H x W
             q, t = self.pose_regressor(flow_coarse)
             return flow, q, t
+
+
+
+
             
             
 ############################Configurations############################
@@ -304,26 +334,31 @@ def depo_v6():
         hid_out_dim=128,
         mode='pose')
 
-
+#LaDEPO
 def depo_v7():
-    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
-    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
-    cross_encoder = QuadtreeAttention(dim=128, num_heads=8, topks=[16, 16, 8], scale=3)
+    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = LatentTransformerRegressor(
                  num_queries=200, d_model=128, d_compressed=32,
                  num_decoder_layers=6, nhead=8, dim_feedforward=2048,
-                 dropout=0.1, activation='relu', normalize_before=False,
-                 return_intermediate_dec=False, H=60, W=80)
-    return DEPO_v2(
+                 dropout=0.1, activation='gelu', normalize_before=False,
+                 return_intermediate_dec=False, H=60, W=80, use_pos_embed=False)
+    return DEPO_v3(
         self_encoder=self_encoder,
         cross_encoder=cross_encoder,
         pose_regressor=pose_regressor,
-        hid_dim=128,
+        hid_dim=256,
         hid_out_dim=128,
         mode='flow&pose',
-        upsample_factor=8)
+        upsample_factor=8,
+        delta_layer='cat',
+        use_ln_in_decoder=False,
+        add_abs_pos_enc=False,
+        H=60, W=80)
 
 
+#LaDEPO
 def depo_v8():
     self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
     self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
@@ -331,16 +366,20 @@ def depo_v8():
     pose_regressor = LatentTransformerRegressor(
                  num_queries=200, d_model=128, d_compressed=32,
                  num_decoder_layers=6, nhead=8, dim_feedforward=2048,
-                 dropout=0.1, activation='relu', normalize_before=False,
+                 dropout=0., activation='leaky_relu:0.1', normalize_before=False,
                  return_intermediate_dec=False, H=60, W=80)
-    return DEPO_v2(
+    return DEPO_v3(
         self_encoder=self_encoder,
         cross_encoder=cross_encoder,
         pose_regressor=pose_regressor,
         hid_dim=128,
         hid_out_dim=128,
         mode='pose',
-        upsample_factor=8)
+        upsample_factor=8,
+        delta_layer='cat',
+        use_ln_in_decoder=False,
+        add_abs_pos_enc=False,
+        H=60, W=80)
 
 
 def depo_v9():
@@ -679,6 +718,146 @@ class DEPO_v1(nn.Module):
         if 'flow' in self.mode:
             flow_coarse = self.flow_regressor(hidden_geometry)
             flow = self.upsample_flow(flow_coarse, (features_q - features_qc).transpose(2, 1).contiguous().view(B, -1, H, W))
+            
+        if self.mode == 'pose':
+            return None, q, t
+            
+        if self.mode == 'flow&pose':
+            return flow, q, t
+            
+        if self.mode == 'flow->pose':
+            flow_coarse = normalize_points(flow_coarse, K_s, scales_s)
+            grid = create_normalized_grid((B, H, W), K_q, scales_q)
+            flow_coarse = torch.cat((flow_coarse, grid), dim=1) #B x 4 x H x W
+            q, t = self.pose_regressor(flow_coarse)
+            return flow, q, t
+        
+        
+        
+# Changes wrt to v1
+# 1. Logic: features_q - features_qc -> features_qc - features_q: 
+# 2. Code: faltten(), in self.pose_regressor() for mode in {'pose', 'flow&pose'} all argeument except of geometry were redundant -> clean
+# add
+# 3. Model: add normalization to geometry_decoder
+class DEPO_v2(nn.Module):
+    """
+    :param mode: {'flow&pose', 'flow->pose', 'pose'}
+    """
+    def __init__(self, self_encoder, cross_encoder, pose_regressor, mode, hid_dim, hid_out_dim, upsample_factor=1, ca='qt'):
+        super(DEPO_v2, self).__init__()
+         
+        self.hid_dim = hid_dim
+        self.hid_out_dim = hid_out_dim
+        self.mode = mode
+        self.upsample_factor = upsample_factor
+        self.ca = ca
+        
+        self.self_encoder = self_encoder
+        self.cross_encoder = cross_encoder        
+        self.geometry_decoder = nn.Sequential(
+            nn.Linear(hid_dim, 1024),
+            nn.LayerNorm(1024),
+            nn.LeakyReLU(0.1),
+            nn.Linear(1024, 1024),
+            nn.LayerNorm(1024),
+            nn.LeakyReLU(0.1),
+            nn.Linear(1024, hid_dim),
+            nn.LayerNorm(hid_dim),
+            nn.LeakyReLU(0.1),
+            nn.Linear(hid_dim, hid_out_dim),
+            nn.LayerNorm(hid_out_dim),
+            nn.LeakyReLU(0.1))
+        
+        if self.mode in ('flow&pose', 'pose'):
+            self.intrinsics_mlp = nn.Sequential(
+                nn.Linear(20, hid_out_dim),
+                nn.LeakyReLU(0.1),
+                nn.Linear(hid_out_dim, hid_out_dim * 2),
+                nn.LeakyReLU(0.1),
+                nn.Linear(hid_out_dim * 2, hid_out_dim * 2))
+        
+        if 'flow' in self.mode:
+            self.flow_regressor = nn.Sequential(
+                nn.Conv2d(hid_out_dim, hid_out_dim, 3, 1, 1),
+                nn.LeakyReLU(0.1),
+                nn.Conv2d(hid_out_dim, hid_out_dim // 2, 1, 1, 0),
+                nn.LeakyReLU(0.1),
+                nn.Conv2d(hid_out_dim // 2, hid_out_dim // 2, 3, 1, 1),
+                nn.LeakyReLU(0.1),
+                nn.Conv2d(hid_out_dim // 2, 2, 1, 1, 0),
+            )
+            
+            # convex upsampling (Source: GMFlow):
+            self.upsampler = nn.Sequential(nn.Conv2d(2 + hid_dim, 256, 3, 1, 1),
+                                           nn.ReLU(inplace=True),
+                                           nn.Conv2d(256, upsample_factor ** 2 * 9, 1, 1, 0))
+        self.pose_regressor = pose_regressor
+      
+    
+    def upsample_flow(self, flow, feature):
+        # (Source: GMFlow)
+        concat = torch.cat((flow, feature), dim=1)
+        mask = self.upsampler(concat)
+        
+        b, flow_channel, h, w = flow.shape
+        mask = mask.view(b, 1, 9, self.upsample_factor, self.upsample_factor, h, w)  # [B, 1, 9, K, K, H, W]
+        mask = torch.softmax(mask, dim=2)
+
+        up_flow = F.unfold(self.upsample_factor * flow, [3, 3], padding=1) #cut windows in flow [18, H, W]
+        up_flow = up_flow.view(b, flow_channel, 9, 1, 1, h, w)  # [B, 2, 9, 1, 1, H, W]
+
+        up_flow = torch.sum(mask * up_flow, dim=2)  # [B, 2, K, K, H, W]
+        up_flow = up_flow.permute(0, 1, 4, 2, 5, 3)  # [B, 2, K, H, K, W]
+        up_flow = up_flow.reshape(b, flow_channel, self.upsample_factor * h,
+                                  self.upsample_factor * w)  # [B, 2, K*H, K*W]
+        return up_flow
+
+                      
+    def calibration_to_vector_(self, K_q, K_s, scales_q, scales_s):
+        '''Organize calibration parameters in vector:
+        [f_x^q, f_y^q, o_x^q, o_y^q, f_x^s, f_y^s, o_x^s, o_y^s, s_x^q, s_y^q, s_x^s, s_y^s,
+         f_x^q * s_x^q, f_y^q * s_y^q, o_x^q * s_x^q, o_y^q * s_y^q,
+         f_x^s * s_x^s, f_y^s * s_y^s, o_x^s * s_x^s, o_y^s * s_y^s]
+        :param K_{q, s}: calibration matrix, B x 3 x 3
+        :scales_{q, s}: the multiplier of initial image size, expected to be in [0, 1], B x 2
+        '''
+        return torch.cat((
+            K_q[:, [0, 1, 0, 1], [0, 1, 2, 2]],
+            K_s[:, [0, 1, 0, 1], [0, 1, 2, 2]],
+            K_q[:, [0, 0], [0, 2]] * scales_q[:, 0, None],
+            K_q[:, [1, 1], [1, 2]] * scales_q[:, 1, None],
+            K_s[:, [0, 0], [0, 2]] * scales_s[:, 0, None],
+            K_s[:, [1, 1], [1, 2]] * scales_s[:, 1, None],
+            scales_q, scales_s
+        ), dim=1) / 1000.
+    
+            
+    def forward(self, img_q, img_s, K_q, K_s, scales_q, scales_s, H=60, W=80):    
+        #Apply self-attention module
+        B = img_q.size(0)
+        imgs = normalize_imgs(torch.cat((img_q, img_s), dim=0))
+        features = self.self_encoder(imgs)
+        
+        if len(features.size()) == 4: # For FocalNet output already has size B*2 x HW x hid_dim
+            features = features.flatten(2).transpose(2, 1)
+        features_q, features_s = features.split(B, dim=0) # B x HW x hid_dim
+        
+        #Apply cross-attention module
+        features_qc = self.cross_encoder(features_q, features_s, H, W) # B x HW x hid_dim
+
+        #Hidden geometry extraction
+        hidden_geometry = self.geometry_decoder(features_qc - features_q).transpose(2, 1).unflatten(2, (H, W)) # N x hid_dim x H x W
+
+        if self.mode in ('pose', 'flow&pose'):
+            calibration_vector = self.calibration_to_vector_(K_q, K_s, scales_q, scales_s)
+            calibration_parameters = self.intrinsics_mlp(calibration_vector) # hid_out_dim*2
+            mu, sigma = calibration_parameters[:, :self.hid_out_dim, None, None], torch.exp(calibration_parameters[:, self.hid_out_dim:, None, None])
+            pose_regressor_input = (hidden_geometry - mu) / sigma
+            q, t = self.pose_regressor(pose_regressor_input)
+        
+        if 'flow' in self.mode:
+            flow_coarse = self.flow_regressor(hidden_geometry)
+            flow = self.upsample_flow(flow_coarse, (features_qc - features_q).transpose(2, 1).unflatten(2, (H, W)))
             
         if self.mode == 'pose':
             return None, q, t

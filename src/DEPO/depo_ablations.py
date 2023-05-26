@@ -97,7 +97,8 @@ class DEPO_v2(nn.Module):
         self.add_abs_pos_enc = add_abs_pos_enc
         self.self_encoder = self_encoder
         self.cross_encoder = cross_encoder     
-        
+
+            
         if delta_layer == 'cat':
             self.delta = nn.Sequential(
                 nn.Linear(hid_dim * 2, hid_dim),

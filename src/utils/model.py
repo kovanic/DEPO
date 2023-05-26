@@ -21,13 +21,12 @@ def save_model(model, epoch, path, optimizer=None, scheduler=None):
 
     
     
-def plot_schedule(scheduler, steps):
+def plot_schedule(scheduler, steps, ax):
     lrs = []
     for _ in range(steps):
         lrs.append(scheduler.get_last_lr())
         scheduler.step()
-    
-    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+
     ax.plot(lrs)
     
     

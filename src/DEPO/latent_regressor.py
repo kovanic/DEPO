@@ -14,7 +14,7 @@ Copy-paste from torch.nn.Transformer with modifications:
 
 import copy
 from typing import Optional, List
-
+from functools import partial
 import torch
 import torch.nn.functional as F
 from torch import nn, Tensor
@@ -35,40 +35,42 @@ class LayerNormTranspose(nn.Module):
 class LatentTransformerRegressor(nn.Module):
     def __init__(self, num_queries=100, d_model=128, d_compressed=64,
                  num_decoder_layers=6, nhead=8, dim_feedforward=2048,
-                 dropout=0.1, activation='relu', normalize_before=False,
-                 return_intermediate_dec=False, H=60, W=80):
+                 dropout=0.0, activation='relu', normalize_before=False,
+                 return_intermediate_dec=False, H=60, W=80, use_pos_embed=True):
         super(LatentTransformerRegressor, self).__init__()
         
         input_fc_dim = d_compressed * num_queries
         assert input_fc_dim % 128 == 0, "d_compressed * num_queries should be divisible by 64"
         
-        self.register_buffer("pos_embed", make_fixed_pe(H, W, d_model // 2).unsqueeze(0))
+        if use_pos_embed:
+            self.register_buffer("pos_embed", make_fixed_pe(H, W, d_model // 2).unsqueeze(0))
+        else:
+            self.pos_embed = None
+            
         self.geometry_patterns = nn.Embedding(num_queries, d_model)
     
         decoder_layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
-        decoder_norm = nn.LayerNorm(d_model)
+        decoder_norm = None
         self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers, decoder_norm,
                                           return_intermediate=return_intermediate_dec)
             
         self.final_compressor = nn.Sequential(
-            nn.Conv1d(d_model, d_model, 1, bias=False),
-            LayerNormTranspose(d_model),
+            nn.Conv1d(d_model, d_model, 1),
             nn.LeakyReLU(0.1),
-            nn.Conv1d(d_model, d_compressed, 1, bias=False),
-            LayerNormTranspose(d_compressed))
+            nn.Conv1d(d_model, d_compressed, 1))
         
         self.pose_decoder = nn.Sequential(
-            nn.Conv1d(input_fc_dim, input_fc_dim // 4, 1),
+            nn.Conv1d(input_fc_dim, input_fc_dim // 4, 1, groups=2),
             nn.LeakyReLU(0.1),
-            nn.Conv1d(input_fc_dim // 4, input_fc_dim // 16, 1),
+            nn.Conv1d(input_fc_dim // 4, input_fc_dim // 16, 1, groups=2),
             nn.LeakyReLU(0.1),
             nn.Conv1d(input_fc_dim // 16, input_fc_dim // 64, 1, groups=2),
             nn.LeakyReLU(0.1))
 
         self.final_dim = input_fc_dim // 128
-        self.q_proj =  nn.Conv1d(self.final_dim, 4, 1)
-        self.t_proj =  nn.Conv1d(self.final_dim, 3, 1)
+        self.q_proj = nn.Conv1d(self.final_dim, 4, 1)
+        self.t_proj = nn.Conv1d(self.final_dim, 3, 1)
         
         self._reset_parameters()
         self.d_model = d_model
@@ -85,7 +87,10 @@ class LatentTransformerRegressor(nn.Module):
         # flatten (B x d_model x H x W) -> (HW x B x d_model)
         B, _, H, W = geometry.shape
         geometry = geometry.flatten(2).permute(2, 0, 1)
-        pos_embed = self.pos_embed.repeat(B, 1, 1, 1).flatten(2).permute(2, 0, 1) 
+        if self.pos_embed is not None:
+            pos_embed = self.pos_embed.repeat(B, 1, 1, 1).flatten(2).permute(2, 0, 1) 
+        else:
+            pos_embed = None
         query_embed = self.geometry_patterns.weight.unsqueeze(1).repeat(1, B, 1)
         tgt = torch.zeros_like(query_embed)
         decoded_patterns = self.decoder(tgt, geometry, memory_key_padding_mask=None,
@@ -246,7 +251,11 @@ def _get_activation_fn(activation):
         return F.gelu
     if activation == "glu":
         return F.glu
-    raise RuntimeError(F"activation should be relu/gelu, not {activation}.")
+    if 'leaky_relu' in activation:
+        slope = float(activation.split(':')[1])
+        return partial(F.leaky_relu, negative_slope=0.1)
+    
+    raise RuntimeError(F"activation should be relu/gelu/leaky_relu, not {activation}.")
 
     
 
