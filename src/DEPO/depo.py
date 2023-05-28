@@ -340,16 +340,16 @@ def depo_v7():
     self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
     cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = LatentTransformerRegressor(
-                 num_queries=200, d_model=128, d_compressed=32,
+                 num_queries=100, d_model=256, d_compressed=64,
                  num_decoder_layers=6, nhead=8, dim_feedforward=2048,
-                 dropout=0.1, activation='gelu', normalize_before=False,
+                 dropout=0.0, activation='leaky_relu:0.1', normalize_before=False,
                  return_intermediate_dec=False, H=60, W=80, use_pos_embed=False)
     return DEPO_v3(
         self_encoder=self_encoder,
         cross_encoder=cross_encoder,
         pose_regressor=pose_regressor,
         hid_dim=256,
-        hid_out_dim=128,
+        hid_out_dim=256,
         mode='flow&pose',
         upsample_factor=8,
         delta_layer='cat',
@@ -360,20 +360,20 @@ def depo_v7():
 
 #LaDEPO
 def depo_v8():
-    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
-    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
-    cross_encoder = QuadtreeAttention(dim=128, num_heads=8, topks=[16, 16, 8], scale=3)
+    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
     pose_regressor = LatentTransformerRegressor(
-                 num_queries=200, d_model=128, d_compressed=32,
+                 num_queries=100, d_model=256, d_compressed=64,
                  num_decoder_layers=6, nhead=8, dim_feedforward=2048,
-                 dropout=0., activation='leaky_relu:0.1', normalize_before=False,
-                 return_intermediate_dec=False, H=60, W=80)
+                 dropout=0.0, activation='leaky_relu:0.1', normalize_before=False,
+                 return_intermediate_dec=False, H=60, W=80, use_pos_embed=False)
     return DEPO_v3(
         self_encoder=self_encoder,
         cross_encoder=cross_encoder,
         pose_regressor=pose_regressor,
-        hid_dim=128,
-        hid_out_dim=128,
+        hid_dim=256,
+        hid_out_dim=256,
         mode='pose',
         upsample_factor=8,
         delta_layer='cat',
@@ -428,42 +428,63 @@ def depo_v11():
         upsample_factor=8)
 
 
+#FCA-1
 def depo_v12():
-    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
-    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
-    cross_encoder = FourierCrossAttention(dim=128, H=60, W=80, activation='leaky_relu:0.1', mode='v1')
-    pose_regressor = LatentTransformerRegressor(
-                 num_queries=200, d_model=128, d_compressed=32,
-                 num_decoder_layers=6, nhead=8, dim_feedforward=2048,
-                 dropout=0.1, activation='relu', normalize_before=False,
-                 return_intermediate_dec=False, H=60, W=80)
-    return DEPO_v2(
+    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
+    cross_encoder = FourierCrossAttention(dim=256, H=60, W=80, mode='v1')
+    pose_regressor = DensePoseRegressorV5(128)
+    return DEPO_v3(
         self_encoder=self_encoder,
         cross_encoder=cross_encoder,
         pose_regressor=pose_regressor,
-        hid_dim=128,
+        hid_dim=256,
         hid_out_dim=128,
         mode='flow&pose',
-        upsample_factor=8)
+        upsample_factor=8,
+        delta_layer='cat',
+        use_ln_in_decoder=False,
+        add_abs_pos_enc=False,
+        H=60, W=80)
 
-
+#FCA-2
 def depo_v13():
-    self_encoder = pcpvt_large_v0_partial(img_size=(480, 640))
-    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pcpvt_large.pth')), strict=False)
-    cross_encoder = FourierCrossAttention(dim=128, H=60, W=80, activation='leaky_relu:0.1', mode='v2')
-    pose_regressor = LatentTransformerRegressor(
-                 num_queries=200, d_model=128, d_compressed=32,
-                 num_decoder_layers=6, nhead=8, dim_feedforward=2048,
-                 dropout=0.1, activation='relu', normalize_before=False,
-                 return_intermediate_dec=False, H=60, W=80)
-    return DEPO_v2(
+    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
+    cross_encoder = FourierCrossAttention(dim=256, H=60, W=80, mode='v2')
+    pose_regressor = DensePoseRegressorV5(128)
+    return DEPO_v3(
         self_encoder=self_encoder,
         cross_encoder=cross_encoder,
         pose_regressor=pose_regressor,
-        hid_dim=128,
+        hid_dim=256,
         hid_out_dim=128,
         mode='flow&pose',
-        upsample_factor=8)
+        upsample_factor=8,
+        delta_layer='cat',
+        use_ln_in_decoder=False,
+        add_abs_pos_enc=False,
+        H=60, W=80)
+
+
+
+def depo_best():
+    self_encoder = alt_gvt_large_partial(img_size=(480, 640))
+    self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
+    cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
+    pose_regressor = DensePoseRegressorV5(128)
+    return DEPO_v3(
+        self_encoder=self_encoder,
+        cross_encoder=cross_encoder,
+        pose_regressor=pose_regressor,
+        hid_dim=256,
+        hid_out_dim=128,
+        mode='flow&pose',
+        upsample_factor=8,
+        delta_layer='cat',
+        use_ln_in_decoder=False,
+        add_abs_pos_enc=False,
+        H=60, W=80)
 
 ############################Legacy####################################
 ######################################################################

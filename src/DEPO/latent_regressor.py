@@ -39,8 +39,8 @@ class LatentTransformerRegressor(nn.Module):
                  return_intermediate_dec=False, H=60, W=80, use_pos_embed=True):
         super(LatentTransformerRegressor, self).__init__()
         
-        input_fc_dim = d_compressed * num_queries
-        assert input_fc_dim % 128 == 0, "d_compressed * num_queries should be divisible by 64"
+        d_c = d_compressed * num_queries
+        assert d_c % 128 == 0, "d_compressed * num_queries should be divisible by 64"
         
         if use_pos_embed:
             self.register_buffer("pos_embed", make_fixed_pe(H, W, d_model // 2).unsqueeze(0))
@@ -54,21 +54,20 @@ class LatentTransformerRegressor(nn.Module):
         decoder_norm = None
         self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers, decoder_norm,
                                           return_intermediate=return_intermediate_dec)
-            
-        self.final_compressor = nn.Sequential(
-            nn.Conv1d(d_model, d_model, 1),
-            nn.LeakyReLU(0.1),
-            nn.Conv1d(d_model, d_compressed, 1))
-        
+                    
         self.pose_decoder = nn.Sequential(
-            nn.Conv1d(input_fc_dim, input_fc_dim // 4, 1, groups=2),
+            nn.Conv1d(num_queries * d_model, num_queries * d_model, 1, groups=num_queries),
             nn.LeakyReLU(0.1),
-            nn.Conv1d(input_fc_dim // 4, input_fc_dim // 16, 1, groups=2),
+            nn.Conv1d(num_queries * d_model, d_c, 1, groups=num_queries),
             nn.LeakyReLU(0.1),
-            nn.Conv1d(input_fc_dim // 16, input_fc_dim // 64, 1, groups=2),
+            nn.Conv1d(d_c, d_c // 4, 1, groups=2), #one half of tokens for t, another for q
+            nn.LeakyReLU(0.1),
+            nn.Conv1d(d_c // 4, d_c // 16, 1, groups=2),
+            nn.LeakyReLU(0.1),
+            nn.Conv1d(d_c // 16, d_c // 32, 1, groups=2),
             nn.LeakyReLU(0.1))
 
-        self.final_dim = input_fc_dim // 128
+        self.final_dim = d_c // 64
         self.q_proj = nn.Conv1d(self.final_dim, 4, 1)
         self.t_proj = nn.Conv1d(self.final_dim, 3, 1)
         
@@ -94,10 +93,9 @@ class LatentTransformerRegressor(nn.Module):
         query_embed = self.geometry_patterns.weight.unsqueeze(1).repeat(1, B, 1)
         tgt = torch.zeros_like(query_embed)
         decoded_patterns = self.decoder(tgt, geometry, memory_key_padding_mask=None,
-                          pos=pos_embed, query_pos=query_embed)
-        decoded_patterns = decoded_patterns.permute(1, 2, 0) # (B x d_model x num_queries)
-        decoded_patterns = self.final_compressor(decoded_patterns) # (B x d_compressed x num_queries)
-        decoded_patterns = decoded_patterns.flatten(1).unsqueeze(2) # (B x input_fc_dim x 1)
+                          pos=pos_embed, query_pos=query_embed) # (num_queries x B x d_model)
+
+        decoded_patterns = decoded_patterns.permute(1, 0, 2).flatten(1).unsqueeze(2) # (B x d_model * num_queries x 1)
         decoded_patterns = self.pose_decoder(decoded_patterns)
         
         t = self.t_proj(decoded_patterns[:, :self.final_dim, ...]).squeeze(2)
