@@ -15,3 +15,4 @@ h5py==3.1.0
 jupyterlab==3.6.3
 gdown==4.7.1
 PyTurboJPEG==1.7.1
+open3d==0.17.0

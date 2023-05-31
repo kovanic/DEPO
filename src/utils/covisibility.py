@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 import sys
 sys.path.append('../../src')
-from datasets.sun3d.loader import *
+# from datasets.sun3d.loader import *
 
 """
 This code is used for calculating covisibility scores and plotting
@@ -41,7 +41,7 @@ def create_coordinate_grid(img_shape):
     :return: coordinate grid of size (B x 2 x N), where N=height*width
     """
     B, H, W = img_shape
-    u, v = torch.meshgrid(torch.arange(H), torch.arange(W), indexing='ij')
+    u, v = torch.meshgrid(torch.arange(H), torch.arange(W))
     uv = torch.cat((v[..., None], u[..., None]), dim=2).reshape(-1, 2).T
     uv = uv.repeat(B, 1, 1)
     return uv
@@ -305,6 +305,7 @@ def plot_projection(img_0, img_1, uv_1):
     plt.tight_layout()
     plt.show()
 
+        
 def plot_pointcloud_for_pair(i, img_0, img_1, depth_0, depth_1, T_0, T_1, K_0, K_1):
     points0 = (to_cartesian(inv(T_0) @ to_homogeneous(image2camera(depth_0, K_0)))[i].T).numpy()
     points1 = (to_cartesian(inv(T_1) @ to_homogeneous(image2camera(depth_1, K_1)))[i].T).numpy()
