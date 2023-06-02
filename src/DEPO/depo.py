@@ -71,12 +71,13 @@ class DEPO_v3(nn.Module):
         self, self_encoder, cross_encoder, pose_regressor,
         mode, hid_dim, hid_out_dim, upsample_factor=1,
         delta_layer='-', use_ln_in_decoder=False, add_abs_pos_enc=False,
-        H=60, W=80):
+        H=60, W=80, calculate_flow=True):
         super(DEPO_v3, self).__init__()
          
         self.hid_dim = hid_dim
         self.hid_out_dim = hid_out_dim
         self.mode = mode
+        self.calculate_flow = calculate_flow
         self.upsample_factor = upsample_factor
         self.delta_layer = delta_layer
         self.add_abs_pos_enc = add_abs_pos_enc
@@ -208,9 +209,13 @@ class DEPO_v3(nn.Module):
 
             q, t = self.pose_regressor(pose_regressor_input)
         
+       
         if 'flow' in self.mode:
-            flow_coarse = self.flow_regressor(hidden_geometry)
-            flow = self.upsample_flow(flow_coarse, features_q_delta.transpose(2, 1).unflatten(2, (H, W)))
+            if self.calculate_flow or (self.mode == 'flow->pose'):
+                flow_coarse = self.flow_regressor(hidden_geometry)
+                flow = self.upsample_flow(flow_coarse, features_q_delta.transpose(2, 1).unflatten(2, (H, W)))
+            else:
+                flow = None
             
         if self.mode == 'pose':
             return None, q, t
@@ -335,7 +340,7 @@ def depo_v6():
         mode='pose')
 
 #LaDEPO
-def depo_v7():
+def depo_v7(**args):
     self_encoder = alt_gvt_large_partial(img_size=(480, 640))
     self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
     cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
@@ -355,7 +360,7 @@ def depo_v7():
         delta_layer='cat',
         use_ln_in_decoder=False,
         add_abs_pos_enc=False,
-        H=60, W=80)
+        H=60, W=80, **args)
 
 
 #LaDEPO
@@ -468,7 +473,7 @@ def depo_v13():
 
 
 
-def depo_best():
+def depo_best(**args):
     self_encoder = alt_gvt_large_partial(img_size=(480, 640))
     self_encoder.load_state_dict(torch.load(osp.join(dir_name, 'weights_external/pvt_large.pth')), strict=False)
     cross_encoder = QuadtreeAttention(dim=256, num_heads=8, topks=[16, 16, 8], scale=3)
@@ -484,7 +489,7 @@ def depo_best():
         delta_layer='cat',
         use_ln_in_decoder=False,
         add_abs_pos_enc=False,
-        H=60, W=80)
+        H=60, W=80, **args)
 
 ############################Legacy####################################
 ######################################################################

@@ -6,7 +6,7 @@ from copy import copy
 def create_normalized_grid(image_size=(120, 160)):
     '''Given image size, return grid for pixels positions, normalized to [-0.5, 0.5]. '''
     H, W = image_size
-    grid = torch.meshgrid((torch.arange(H), torch.arange(W)), indexing='ij')
+    grid = torch.meshgrid((torch.arange(H), torch.arange(W)))
     grid = torch.cat((grid[1].unsqueeze(0), grid[0].unsqueeze(0)), dim=0).float()
     grid[1] = grid[1] / (H - 1) - 0.5
     grid[0] = grid[0] / (W - 1) - 0.5

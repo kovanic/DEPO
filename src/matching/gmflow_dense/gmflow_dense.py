@@ -38,7 +38,8 @@ class GMflowDensePose(nn.Module):
             num_transformer_layers=num_transformer_layers,
             ffn_dim_expansion=ffn_dim_expansion,
             num_head=num_head,
-            fine_tuning=fine_tuning)
+            fine_tuning=fine_tuning,
+            probabilistic=conf_module)
         
         self.conf_module = conf_module
         if self.conf_module:
@@ -72,7 +73,7 @@ class GMflowDensePose(nn.Module):
             )
             flow = torch.cat((flow, uncertainty), dim=1)
         
-        del out_flow['local_corr']
+        # del out_flow['local_corr']
         
         q, t = self.dense_pose_regressor(flow)
         return q, t

@@ -2,13 +2,14 @@
 \centering
 \caption{Models sizes and speed}
 \label{tab:speed}
-\begin{tabular}{lll}
+\begin{tabular}{lrl}
 \toprule
  & # of parameters & pairs/sec. \\
 \midrule
-DEPO-C: PVT-L + QT-B + Spatial pred. & 12.89 & 0 \\
-LaDEPO-C: PVT-L + QT-B + Latent pred. & 31.37 & 0 \\
-GMFlow + Spatial pred. & 0 & 0 \\
+DEPO-C: PCPVT-L + QT-B + Spatial pred. & nan & None \\
+LaDEPO-C: PVT-L + QT-B + Latent pred. & 31.37 & $23.72 \pm$ 0.19$ \\
+GMFlow + Spatial pred. & 16.60 & $257.670576171875 ms $\pm$ 0.548 \\
+DEPO-C: PVT-L + QT-B + Spatial pred. & 12.89 & $18.42 \pm 0.26$ \\
 \bottomrule
 \end{tabular}
 \end{table}

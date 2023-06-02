@@ -137,7 +137,10 @@ def train(model, optimizer, weights_optimizer, scheduler, train_loss, val_loss,
                         "Train batch loss (total)": train_batch_loss['total'] / (batch_size * n_accum_steps),
                         "Train batch loss (flow)": train_batch_loss['flow'] / (batch_size * n_accum_steps),
                         "Train batch loss (q)": train_batch_loss['q'] / (batch_size * n_accum_steps),
-                        "Train batch loss (t)": train_batch_loss['t'] / (batch_size * n_accum_steps)
+                        "Train batch loss (t)": train_batch_loss['t'] / (batch_size * n_accum_steps),
+                        "C(t)": train_loss.weights[0].item(),
+                        "C(q)": train_loss.weights[1].item(),
+                        "C(f)": train_loss.weights[2].item()
                     })
                     
                     train_batch_loss = {'total':0., 'flow': 0., 'q': 0., 't':0.}
@@ -146,7 +149,10 @@ def train(model, optimizer, weights_optimizer, scheduler, train_loss, val_loss,
                 #SWA update at each n_steps_between_swa_updates steps of last `n_epochs_swa` epochs.
                 if swa and scheduler.swa_needs_update():
                     swa_model.update_parameters(model)
-           
+                
+                if (i % 40_000 == 0):
+                    save_model(model, epoch, model_save_path+f'{i}_step', optimizer, scheduler)
+                    
             data = None
             for key, val in train_loss_epoch.items():
                 train_loss_epoch[key] = val / len(train_loader.dataset)

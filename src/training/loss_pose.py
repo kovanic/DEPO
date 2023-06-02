@@ -50,10 +50,10 @@ class LossPose:
             L_3 = norm((t_gt / norm(t_gt, ord=2, dim=1, keepdim=True) - t / norm(t, ord=2, dim=1, keepdim=True)), ord=2, dim=1)
         
         if weights is not None:
-            L_1 = L_1 * torch.exp(-weights[0]) + 3*weights[0]
-            L_2 = L_2 * torch.exp(-weights[1]) + 4*weights[1]
+            L_1 = L_1 * torch.exp(-weights[0]) + 3 * weights[0]
+            L_2 = L_2 * torch.exp(-weights[1]) + 4 * weights[1]
             if len(weights) == 3:
-                L_3 = L_3 * torch.exp(-weights[2]) + 3*weights[2]
+                L_3 = L_3 * torch.exp(-weights[2]) + 3 * weights[2]
                 
         if self.agg_type == 'mean':
             return (L_1 + L_2 + L_3).mean()
