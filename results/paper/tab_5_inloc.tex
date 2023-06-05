@@ -1,0 +1,22 @@
+\begin{table}[h!]
+\centering
+\caption{Localization quality on InLoc}
+\label{tab:inloc}
+\begin{tabular}{llll}
+\toprule
+ &  & \multicolumn{2}{c}{(0.25m, 2°) / (0.5m, 5°) / (5m, 10°)} \\
+ &  & DUC1 & DUC2 \\
+\midrule
+\multirow[c]{2}{*}{detector-based} & SIFT [2004] \cite{lowe2004distinctive} + MNN + Lowe * & 29.8 / 46.0 / 54.5 & 24.4 / 34.4 / 42.0 \\
+ & SuperPoint [2018] \cite{detone2018superpoint} + SuperGlue [2020] \cite{sarlin2020superglue} & 49.0 / 68.7 / 80.8 & 53.4 / 77.1 / 82.4 \\
+\cline{1-4}
+\multirow[c]{4}{*}{semi-dense} & LoFTR [2021] \cite{sun2021loftr} & 47.5 / 72.2 / 84.8 & 54.2 / 74.8 /85.5 \\
+ & MatchFormer [2022] \cite{wang2022matchformer} & 46.5 / 73.2 / 85.9 & 55.7 / 71.8 / 81.7 \\
+ & ASpanFormer [2022] \cite{chen2022aspanformer} & 51.5 / 73.7 / 86.4 & 55.0 / 74.0 / 81.7 \\
+ & DKM [2022] \cite{edstedt2022deep} ** & 51.5 / 75.3 / 86.9 & 63.4 / 82.4 / 87.8 \\
+\cline{1-4}
+end-to-end & DEPO-C: PVT-L + QT-B + Spatial pred. & None & None \\
+\cline{1-4}
+\bottomrule
+\end{tabular}
+\end{table}

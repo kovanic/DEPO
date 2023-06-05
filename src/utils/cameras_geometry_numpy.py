@@ -174,16 +174,3 @@ def extrinsics2camera_pose(
 #     pointcloud = norm_grid * np.expand_dims(img_depth.reshape(-1), axis=-1)
 #     return pointcloud
 
-import open3d as o3d
-
-def geometries_for_one_frame(img, depth, T, K):
-    #T w2c
-    points = to_cartesian(np.linalg.inv(T) @ to_homogeneous(image2camera(depth, K), axis=0), axis=0).T
-    colors = img.reshape(-1, 3) / 255
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(points)
-    pcd.colors = o3d.utility.Vector3dVector(colors)
-    
-    pose = o3d.geometry.TriangleMesh.create_coordinate_frame(0.3).transform(np.linalg.inv(T))
-
-    return [pcd, pose]
