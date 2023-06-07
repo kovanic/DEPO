@@ -39,7 +39,7 @@ class SevenScenesEvalDataset(Dataset):
     def __init__(self,
                  root_dir: str,
                  pairs_path: str,
-                 scene: int,
+                 scene: int=None,
                  mode_rgb_read: str='rgb',
                  **kwargs):
         super().__init__()
@@ -47,7 +47,10 @@ class SevenScenesEvalDataset(Dataset):
         self.root_dir = root_dir
         self.mode_rgb_read = mode_rgb_read
         pairs = pd.read_csv(pairs_path, header=None, sep=' ')
-        self.pairs = pairs[pairs[2] == scene]
+        if scene is not None:
+            self.pairs = pairs[pairs[2] == scene]
+        else:
+            self.pairs = pairs
         self._scenes_dicitionary = {
             0: 'chess', 
             1: 'fire',

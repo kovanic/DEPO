@@ -154,7 +154,7 @@ def train(model, optimizer, scheduler, train_loss, val_loss,
                 save_model(model, epoch, model_save_path, optimizer, scheduler)
         if swa:
             # update_bn(loader_train, swa_model, device)
-            save_model(swa_model.module, f'{model_save_path}_swa.pth')
+            save_model(swa_model.module, epoch, f'{model_save_path}_swa.pth')
 
             
             
