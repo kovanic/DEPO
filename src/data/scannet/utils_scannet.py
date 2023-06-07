@@ -39,7 +39,7 @@ def read_depth(path):
     return depth
     
 
-def read_pose(path: np.ndarray):
+def read_pose(path: str):
     """ Read ScanNet's Camera2World pose and transform it to World2Camera.
     :param pose_w2c: (4, 4)
     """
