@@ -1,3 +1,6 @@
+.gitignore
+/results/
+*LOCAL*
 *.swp
 *.jpg
 *.png
